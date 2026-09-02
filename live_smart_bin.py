@@ -36,6 +36,9 @@ def main():
     sorting_state = "IDLE"
     sort_timer = 0
 
+    locked_text = None
+    empty_frames = 0
+
     while True:
         ret, frame = cap.read()
         if not ret:
@@ -65,26 +68,33 @@ def main():
             max_score = np.max(score)
             
             if max_score > 0.85:
-                predicted_class = class_names[np.argmax(score)]
-                
-                recycling_items = ['cardboard', 'glass', 'metal', 'paper', 'plastic']
-                if any(item in predicted_class for item in recycling_items):
-                    action = f"RECYCLING CHUTE ({predicted_class})"
-                elif 'compost' in predicted_class or 'organic' in predicted_class:
-                    action = f"COMPOST CHUTE ({predicted_class})"
-                else:
-                    action = f"LANDFILL TRASH ({predicted_class})"
+                empty_frames = 0
+                if locked_text is None:
+                    # New object placed! Lock in the prediction
+                    predicted_class = class_names[np.argmax(score)]
                     
-                text = f"[{max_score*100:.0f}%] {action}"
-                
-                # Draw solid white background bar at the bottom
-                cv2.rectangle(frame, (0, h_f - 60), (w_f, h_f), (255, 255, 255), -1)
-                # Draw black text
-                cv2.putText(frame, text, (20, h_f - 20), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 0), 3)
+                    recycling_items = ['cardboard', 'glass', 'metal', 'paper', 'plastic']
+                    if any(item in predicted_class for item in recycling_items):
+                        action = f"RECYCLING CHUTE ({predicted_class})"
+                    elif 'compost' in predicted_class or 'organic' in predicted_class:
+                        action = f"COMPOST CHUTE ({predicted_class})"
+                    else:
+                        action = f"LANDFILL TRASH ({predicted_class})"
+                        
+                    locked_text = f"[{max_score*100:.0f}%] {action}"
             else:
-                text = "Place item on tray..."
-                cv2.rectangle(frame, (0, h_f - 60), (w_f, h_f), (255, 255, 255), -1)
-                cv2.putText(frame, text, (20, h_f - 20), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 0), 3)
+                empty_frames += 1
+                if empty_frames > 5:
+                    # Object has been removed
+                    locked_text = None
+
+            # Draw solid white background bar at the bottom
+            cv2.rectangle(frame, (0, h_f - 60), (w_f, h_f), (255, 255, 255), -1)
+            
+            if locked_text:
+                cv2.putText(frame, locked_text, (20, h_f - 20), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 0), 3)
+            else:
+                cv2.putText(frame, "Place item on tray...", (20, h_f - 20), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 0), 3)
 
         cv2.imshow("EcoSort Smart Bin Simulator", frame)
         
