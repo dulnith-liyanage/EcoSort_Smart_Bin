@@ -53,47 +53,38 @@ def main():
         cv2.rectangle(frame, (x1, y1), (x2, y2), (255, 255, 255), 2)
         cv2.putText(frame, "EcoSort Scanning Tray", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
         
-        if time.time() > sort_timer:
-            sorting_state = "IDLE"
-
-        if sorting_state == "IDLE":
-            roi = frame[y1:y2, x1:x2]
-            if roi.shape[0] > 0 and roi.shape[1] > 0:
-                roi_rgb = cv2.cvtColor(roi, cv2.COLOR_BGR2RGB)
-                roi_resized = cv2.resize(roi_rgb, (224, 224))
-                img_array = tf.keras.utils.img_to_array(roi_resized)
-                img_array = tf.expand_dims(img_array, 0)
+        roi = frame[y1:y2, x1:x2]
+        if roi.shape[0] > 0 and roi.shape[1] > 0:
+            roi_rgb = cv2.cvtColor(roi, cv2.COLOR_BGR2RGB)
+            roi_resized = cv2.resize(roi_rgb, (224, 224))
+            img_array = tf.keras.utils.img_to_array(roi_resized)
+            img_array = tf.expand_dims(img_array, 0)
+            
+            predictions = model.predict(img_array, verbose=0)
+            score = predictions[0]
+            max_score = np.max(score)
+            
+            if max_score > 0.85:
+                predicted_class = class_names[np.argmax(score)]
                 
-                predictions = model.predict(img_array, verbose=0)
-                score = predictions[0]
-                max_score = np.max(score)
-                
-                # Require high confidence to trigger the physical motors (90%)
-                if max_score > 0.90:
-                    predicted_class = class_names[np.argmax(score)]
-                    
-                    recycling_items = ['cardboard', 'glass', 'metal', 'paper', 'plastic']
-                    if any(item in predicted_class for item in recycling_items):
-                        action = f"ACTUATING SERVO: RECYCLING CHUTE ♻️ ({predicted_class})"
-                        color = (255, 200, 0) # Blue/Cyan in BGR
-                    elif 'compost' in predicted_class or 'organic' in predicted_class:
-                        action = f"ACTUATING SERVO: COMPOST CHUTE 🍏 ({predicted_class})"
-                        color = (0, 200, 0) # Green
-                    else:
-                        action = f"ACTUATING SERVO: LANDFILL TRASH 🗑️ ({predicted_class})"
-                        color = (0, 0, 255) # Red
-                        
-                    sorting_state = action
-                    sort_timer = time.time() + 3.0 # Hold the state for 3 seconds to let the item drop
-                    print(f"[{max_score*100:.0f}% Confidence] {action}")
+                recycling_items = ['cardboard', 'glass', 'metal', 'paper', 'plastic']
+                if any(item in predicted_class for item in recycling_items):
+                    action = f"RECYCLING CHUTE ({predicted_class})"
+                elif 'compost' in predicted_class or 'organic' in predicted_class:
+                    action = f"COMPOST CHUTE ({predicted_class})"
                 else:
-                    status_text = "Place item on tray..."
-                    cv2.putText(frame, status_text, (10, h_f - 30), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (200, 200, 200), 2)
-
-        else:
-            # Display the sorting action prominently
-            cv2.putText(frame, sorting_state, (10, h_f - 30), cv2.FONT_HERSHEY_SIMPLEX, 1.0, color, 3)
-            cv2.putText(frame, "(Item dropped)", (10, h_f - 70), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
+                    action = f"LANDFILL TRASH ({predicted_class})"
+                    
+                text = f"[{max_score*100:.0f}%] {action}"
+                
+                # Draw solid white background bar at the bottom
+                cv2.rectangle(frame, (0, h_f - 60), (w_f, h_f), (255, 255, 255), -1)
+                # Draw black text
+                cv2.putText(frame, text, (20, h_f - 20), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 0), 3)
+            else:
+                text = "Place item on tray..."
+                cv2.rectangle(frame, (0, h_f - 60), (w_f, h_f), (255, 255, 255), -1)
+                cv2.putText(frame, text, (20, h_f - 20), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 0), 3)
 
         cv2.imshow("EcoSort Smart Bin Simulator", frame)
         
