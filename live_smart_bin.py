@@ -3,7 +3,6 @@ import numpy as np
 import tensorflow as tf
 import os
 import argparse
-import time
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 
@@ -32,12 +31,13 @@ def main():
     print("ECOSORT SMART BIN ONLINE! Press 'q' to quit.")
     print("="*40 + "\n")
 
-    # Hardware simulation state
-    sorting_state = "IDLE"
-    sort_timer = 0
-
     locked_text = None
     empty_frames = 0
+    
+    # Background Subtraction Variables
+    background_frame = None
+    calibration_frames = 30
+    frames_read = 0
 
     while True:
         ret, frame = cap.read()
@@ -58,44 +58,82 @@ def main():
         
         roi = frame[y1:y2, x1:x2]
         if roi.shape[0] > 0 and roi.shape[1] > 0:
-            roi_rgb = cv2.cvtColor(roi, cv2.COLOR_BGR2RGB)
-            roi_resized = cv2.resize(roi_rgb, (224, 224))
-            img_array = tf.keras.utils.img_to_array(roi_resized)
-            img_array = tf.expand_dims(img_array, 0)
             
-            predictions = model.predict(img_array, verbose=0)
-            score = predictions[0]
-            max_score = np.max(score)
+            # Convert ROI to grayscale and blur it for motion detection
+            gray_roi = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+            gray_roi = cv2.GaussianBlur(gray_roi, (21, 21), 0)
             
-            if max_score > 0.85:
+            # Phase 1: Calibrate the empty tray
+            if frames_read < calibration_frames:
+                if background_frame is None:
+                    background_frame = gray_roi.astype("float")
+                else:
+                    cv2.accumulateWeighted(gray_roi, background_frame, 0.1)
+                
+                frames_read += 1
+                cv2.rectangle(frame, (0, h_f - 60), (w_f, h_f), (255, 255, 255), -1)
+                cv2.putText(frame, f"Calibrating Empty Tray... {frames_read}/{calibration_frames}", (20, h_f - 20), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 255), 3)
+                cv2.imshow("EcoSort Smart Bin Simulator", frame)
+                if cv2.waitKey(1) & 0xFF == ord('q'): break
+                continue
+
+            # Phase 2: Detect Objects
+            frame_delta = cv2.absdiff(background_frame.astype("uint8"), gray_roi)
+            thresh = cv2.threshold(frame_delta, 30, 255, cv2.THRESH_BINARY)[1]
+            thresh = cv2.dilate(thresh, None, iterations=2)
+            
+            contours, _ = cv2.findContours(thresh.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            
+            object_detected = False
+            for c in contours:
+                if cv2.contourArea(c) > 5000: # Threshold for a valid object size (e.g. ignore tiny shadows)
+                    object_detected = True
+                    # Draw a green box around the detected object
+                    x, y, w, h = cv2.boundingRect(c)
+                    cv2.rectangle(frame, (x1+x, y1+y), (x1+x+w, y1+y+h), (0, 255, 0), 2)
+                    break
+            
+            if object_detected:
                 empty_frames = 0
-                if locked_text is None:
-                    # New object placed! Lock in the prediction
-                    predicted_class = class_names[np.argmax(score)]
-                    
-                    if predicted_class == 'paper':
-                        action = "Paper (Recyclable)"
-                    elif predicted_class == 'plastic_metal':
-                        action = "Plastic/Metal (Recyclable)"
-                    elif predicted_class == 'organic':
-                        action = "Organic (General Trash)"
-                    else:
-                        action = "Trash (General Trash)"
+                
+                # Only run the heavy AI model if an object is actually present!
+                roi_rgb = cv2.cvtColor(roi, cv2.COLOR_BGR2RGB)
+                roi_resized = cv2.resize(roi_rgb, (224, 224))
+                img_array = tf.keras.utils.img_to_array(roi_resized)
+                img_array = tf.expand_dims(img_array, 0)
+                
+                predictions = model.predict(img_array, verbose=0)
+                score = predictions[0]
+                max_score = np.max(score)
+                
+                if max_score > 0.85:
+                    if locked_text is None:
+                        # New object placed! Lock in the prediction
+                        predicted_class = class_names[np.argmax(score)]
                         
-                    locked_text = f"[{max_score*100:.0f}%] {action}"
+                        if predicted_class == 'paper':
+                            action = "Paper (Recyclable)"
+                        elif predicted_class == 'plastic_metal':
+                            action = "Plastic/Metal (Recyclable)"
+                        elif predicted_class == 'organic':
+                            action = "Organic (General Trash)"
+                        else:
+                            action = "Trash (General Trash)"
+                            
+                        locked_text = f"[{max_score*100:.0f}%] {action}"
             else:
+                # No object detected. Slowly update the background to adapt to lighting changes
+                cv2.accumulateWeighted(gray_roi, background_frame, 0.05)
                 empty_frames += 1
-                if empty_frames > 5:
-                    # Object has been removed
+                if empty_frames > 10:
                     locked_text = None
 
-            # Draw solid white background bar at the bottom
+            # Draw UI
             cv2.rectangle(frame, (0, h_f - 60), (w_f, h_f), (255, 255, 255), -1)
-            
             if locked_text:
                 cv2.putText(frame, locked_text, (20, h_f - 20), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 0), 3)
             else:
-                cv2.putText(frame, "Place item on tray...", (20, h_f - 20), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 0), 3)
+                cv2.putText(frame, "Tray is empty. Waiting for item...", (20, h_f - 20), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 0), 3)
 
         cv2.imshow("EcoSort Smart Bin Simulator", frame)
         
