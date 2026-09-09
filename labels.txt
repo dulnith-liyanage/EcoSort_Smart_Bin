@@ -1,6 +1,4 @@
-cardboard
-glass
-metal
+general
+organic
 paper
-plastic
-trash
+plastic_metal

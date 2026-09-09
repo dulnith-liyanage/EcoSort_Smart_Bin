@@ -73,13 +73,14 @@ def main():
                     # New object placed! Lock in the prediction
                     predicted_class = class_names[np.argmax(score)]
                     
-                    recycling_items = ['cardboard', 'glass', 'metal', 'paper', 'plastic']
-                    if any(item in predicted_class for item in recycling_items):
-                        action = f"RECYCLING CHUTE ({predicted_class})"
-                    elif 'compost' in predicted_class or 'organic' in predicted_class:
-                        action = f"COMPOST CHUTE ({predicted_class})"
+                    if predicted_class == 'paper':
+                        action = "Paper (Recyclable)"
+                    elif predicted_class == 'plastic_metal':
+                        action = "Plastic/Metal (Recyclable)"
+                    elif predicted_class == 'organic':
+                        action = "Organic (General Trash)"
                     else:
-                        action = f"LANDFILL TRASH ({predicted_class})"
+                        action = "Trash (General Trash)"
                         
                     locked_text = f"[{max_score*100:.0f}%] {action}"
             else:

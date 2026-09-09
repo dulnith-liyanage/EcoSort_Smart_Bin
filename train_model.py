@@ -18,7 +18,7 @@ def main():
     print("1. Loading EcoSort Waste Dataset...")
     
     if not os.path.exists(DATASET_DIR) or len(os.listdir(DATASET_DIR)) == 0:
-        print(f"Error: Dataset directory '{DATASET_DIR}' is empty. Please add images to trash/, recycling/, and compost/ folders.")
+        print(f"Error: Dataset directory '{DATASET_DIR}' is empty. Please add images to organic/, paper/, plastic_metal/, and general/ folders.")
         return
 
     train_ds = tf.keras.utils.image_dataset_from_directory(
