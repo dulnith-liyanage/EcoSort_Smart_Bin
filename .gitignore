@@ -1,8 +1,9 @@
 venv/
 __pycache__/
-*.keras
 *.h5
 *.pb
 *.png
 dataset/
 .DS_Store
+dataset_1
+dataset_2
