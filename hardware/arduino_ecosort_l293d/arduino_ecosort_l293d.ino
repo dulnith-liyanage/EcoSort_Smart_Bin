@@ -1,5 +1,5 @@
 /*
- * EcoSort Smart Bin - Dual Servo Controller (L293D Shield)
+ * EcoSort Smart Bin - 4-Way Waste Segregator (L293D Shield)
  * 
  * Target Board: Arduino Uno / Mega with L293D Motor Driver Shield
  * 
@@ -7,15 +7,19 @@
  *   - SERVO_1 header = Arduino Digital Pin 10
  *   - SERVO_2 header = Arduino Digital Pin 9
  *
- * Mapping:
- *   - Servo 1: Activated when vision model detects GENERAL TRASH
- *   - Servo 2: Activated when vision model detects RECYCLABLES
+ * 4 Categories Supported:
+ *   1. PAPER            -> Trigger Paper action (e.g. Servo 1 Tilt Left)
+ *   2. PLASTIC / METAL  -> Trigger Plastic/Metal action (e.g. Servo 1 Tilt Right)
+ *   3. ORGANIC          -> Trigger Organic action (e.g. Servo 2 Tilt Forward)
+ *   4. GENERAL TRASH    -> Trigger General action (e.g. Servo 2 Tilt Backward)
  * 
  * Commands received over Serial (9600 baud):
- *   - 'G' or '1' -> Trigger Servo 1 (General Trash)
- *   - 'R' or '2' -> Trigger Servo 2 (Recyclables)
- *   - 'N' or '0' -> Reset both servos to Neutral
- *   - 'T'        -> Self-test sequence
+ *   - 'P' or '1' -> Paper
+ *   - 'M' or '2' -> Plastic or Metal
+ *   - 'O' or '3' -> Organic
+ *   - 'G' or '4' -> General Trash
+ *   - '0'        -> Reset both servos to Neutral
+ *   - 'T'        -> Full 4-category Self-Test sequence
  */
 
 #include <Servo.h>
@@ -24,60 +28,90 @@
 const int SERVO1_PIN = 10; // SERVO_1 header on L293D shield
 const int SERVO2_PIN = 9;  // SERVO_2 header on L293D shield
 
-// --- Angle Settings (Adjust to match your mechanical design) ---
-const int SERVO1_NEUTRAL = 90; // Rest position for Servo 1
-const int SERVO1_DUMP    = 150; // Active/Dump position for Servo 1
-const int SERVO2_NEUTRAL = 90; // Rest position for Servo 2
-const int SERVO2_DUMP    = 30;  // Active/Dump position for Servo 2
+// --- Angle Settings (Adjust to match your physical bin/tray mechanism) ---
+const int S1_NEUTRAL = 90;
+const int S2_NEUTRAL = 90;
 
-const int HOLD_TIME_MS   = 1200; // How long to hold dump position (ms)
+// Category 1: Paper (Servo 1 dumps Left)
+const int S1_PAPER = 45;
+
+// Category 2: Plastic / Metal (Servo 1 dumps Right)
+const int S1_PLASTIC_METAL = 135;
+
+// Category 3: Organic (Servo 2 dumps Forward)
+const int S2_ORGANIC = 45;
+
+// Category 4: General Trash (Servo 2 dumps Backward)
+const int S2_GENERAL = 135;
+
+const int HOLD_TIME_MS = 1200; // Time in ms to hold dump position
 
 Servo servo1;
 Servo servo2;
 
-void triggerGeneralTrash() {
-  Serial.println(F("ACK: Activating SERVO 1 -> GENERAL TRASH"));
-  servo1.write(SERVO1_DUMP);
+void triggerPaper() {
+  Serial.println(F("ACK: Activating -> [1/4] PAPER (Servo 1 -> 45 deg)"));
+  servo1.write(S1_PAPER);
   delay(HOLD_TIME_MS);
-  servo1.write(SERVO1_NEUTRAL);
-  Serial.println(F("ACK: Servo 1 returned to Neutral"));
+  servo1.write(S1_NEUTRAL);
+  Serial.println(F("ACK: Returned to Neutral"));
 }
 
-void triggerRecyclables() {
-  Serial.println(F("ACK: Activating SERVO 2 -> RECYCLABLES"));
-  servo2.write(SERVO2_DUMP);
+void triggerPlasticMetal() {
+  Serial.println(F("ACK: Activating -> [2/4] PLASTIC/METAL (Servo 1 -> 135 deg)"));
+  servo1.write(S1_PLASTIC_METAL);
   delay(HOLD_TIME_MS);
-  servo2.write(SERVO2_NEUTRAL);
-  Serial.println(F("ACK: Servo 2 returned to Neutral"));
+  servo1.write(S1_NEUTRAL);
+  Serial.println(F("ACK: Returned to Neutral"));
+}
+
+void triggerOrganic() {
+  Serial.println(F("ACK: Activating -> [3/4] ORGANIC (Servo 2 -> 45 deg)"));
+  servo2.write(S2_ORGANIC);
+  delay(HOLD_TIME_MS);
+  servo2.write(S2_NEUTRAL);
+  Serial.println(F("ACK: Returned to Neutral"));
+}
+
+void triggerGeneral() {
+  Serial.println(F("ACK: Activating -> [4/4] GENERAL TRASH (Servo 2 -> 135 deg)"));
+  servo2.write(S2_GENERAL);
+  delay(HOLD_TIME_MS);
+  servo2.write(S2_NEUTRAL);
+  Serial.println(F("ACK: Returned to Neutral"));
 }
 
 void resetBoth() {
-  servo1.write(SERVO1_NEUTRAL);
-  servo2.write(SERVO2_NEUTRAL);
-  Serial.println(F("ACK: Both servos at Neutral"));
+  servo1.write(S1_NEUTRAL);
+  servo2.write(S2_NEUTRAL);
+  Serial.println(F("ACK: Both servos at Neutral (90 deg)"));
 }
 
 void selfTest() {
-  Serial.println(F("ACK: Running Self-Test..."));
-  triggerGeneralTrash();
-  delay(500);
-  triggerRecyclables();
-  Serial.println(F("ACK: Self-Test Complete"));
+  Serial.println(F("ACK: Running 4-Way Self-Test..."));
+  triggerPaper();
+  delay(400);
+  triggerPlasticMetal();
+  delay(400);
+  triggerOrganic();
+  delay(400);
+  triggerGeneral();
+  Serial.println(F("ACK: 4-Way Self-Test Complete"));
 }
 
 void setup() {
   Serial.begin(9600);
   
-  // Attach servos to the dedicated L293D shield pins
+  // Attach servos to L293D shield pins
   servo1.attach(SERVO1_PIN);
   servo2.attach(SERVO2_PIN);
 
-  // Set initial neutral resting positions
-  servo1.write(SERVO1_NEUTRAL);
-  servo2.write(SERVO2_NEUTRAL);
+  // Initialize neutral positions
+  servo1.write(S1_NEUTRAL);
+  servo2.write(S2_NEUTRAL);
 
   delay(500);
-  Serial.println(F("ECOSORT_READY: L293D Dual Servo Controller Online"));
+  Serial.println(F("ECOSORT_READY: 4-Way Waste Segregator Online (Paper, Plastic/Metal, Organic, General)"));
 }
 
 void loop() {
@@ -90,18 +124,28 @@ void loop() {
     }
 
     switch (cmd) {
-      case 'G':
+      case 'P':
       case '1':
-        triggerGeneralTrash();
+        triggerPaper();
         break;
 
-      case 'R':
+      case 'M':
       case '2':
-        triggerRecyclables();
+        triggerPlasticMetal();
         break;
 
-      case 'N':
+      case 'O':
+      case '3':
+        triggerOrganic();
+        break;
+
+      case 'G':
+      case '4':
+        triggerGeneral();
+        break;
+
       case '0':
+      case 'N':
         resetBoth();
         break;
 

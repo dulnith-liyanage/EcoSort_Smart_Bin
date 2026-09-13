@@ -1,61 +1,72 @@
-# EcoSort Smart Bin - Arduino & L293D Dual Servo Setup
+# EcoSort Smart Bin - 4-Way Waste Segregation Hardware
 
-This folder contains the Arduino firmware to control **two servo motors** using an **L293D Motor Driver Shield** connected to your computer via USB Serial.
+This folder contains Arduino firmware for two different motor driver options to segregate waste into **4 distinct categories**:
+1. **Paper**
+2. **Plastic or Metal**
+3. **Organic**
+4. **General Trash**
 
 ---
 
-## 1. Pin Mapping on L293D Shield
+## Option A: PCA9685 16-Channel 12-bit PWM Driver (Recommended!)
 
-Standard L293D motor shields (Adafruit v1 clone) have two dedicated 3-pin headers in the top corner for servo motors:
+The **PCA9685** module uses I2C communication (only 2 data wires to Arduino) and has a dedicated external power terminal to safely power high-torque servos without resetting the Arduino.
 
-| L293D Shield Header | Arduino Digital Pin | Waste Category | Target Action |
+### 1. Arduino to PCA9685 Wiring (I2C):
+| PCA9685 Pin | Arduino Uno / Nano | Arduino Mega | Note |
 | :--- | :--- | :--- | :--- |
-| **`SERVO_1`** | **Pin 10** | **General Trash** (`organic`, `general`) | Triggers Servo 1 dump cycle |
-| **`SERVO_2`** | **Pin 9** | **Recyclables** (`paper`, `plastic_metal`) | Triggers Servo 2 dump cycle |
+| **`GND`** | **`GND`** | **`GND`** | Logic Ground |
+| **`VCC`** | **`5V`** | **`5V`** | Powers the PCA9685 chip only |
+| **`SDA`** | **`A4`** (or SDA) | **Pin 20** (SDA) | I2C Data line |
+| **`SCL`** | **`A5`** (or SCL) | **Pin 21** (SCL) | I2C Clock line |
+| **`OE`** | *Unconnected* | *Unconnected* | Output Enable (pulled low internally) |
 
-Each 3-pin header is arranged as:
-* **`-` or `GND`**: Connect to Servo **Brown / Black** wire
-* **`+` or `5V`**: Connect to Servo **Red** wire
-* **`S` or `Signal`**: Connect to Servo **Orange / Yellow** wire
+### 2. Servo Power (Green Screw Terminal):
+* **`POWER +`**: Connect external **5V to 6V** power supply (positive)
+* **`POWER -`**: Connect external power supply **GND** (negative)
+
+### 3. Servo Connections:
+Plug your servos into the 3-pin headers:
+* **Channel 0**: Servo 1 (Paper / Plastic & Metal Axis)
+* **Channel 1**: Servo 2 (Organic / General Trash Axis)
+
+Follow the board's color rows:
+* **Yellow Row (top)** = `PWM` (Signal wire: Orange/Yellow)
+* **Red Row (middle)** = `V+` (Power wire: Red)
+* **Black Row (bottom)** = `GND` (Ground wire: Brown/Black)
+
+### 4. Software Setup:
+1. In Arduino IDE, go to **Tools > Manage Libraries...**
+2. Search for **"Adafruit PWM Servo Driver"** and click **Install**.
+3. Open [`hardware/arduino_ecosort_pca9685/arduino_ecosort_pca9685.ino`](arduino_ecosort_pca9685/arduino_ecosort_pca9685.ino) and upload it to your Arduino!
 
 ---
 
-## 2. Arduino Setup Instructions
+## Option B: L293D Motor Driver Shield
 
-1. Open the [Arduino IDE](https://www.arduino.cc/en/software).
-2. Open the sketch file:  
-   [`hardware/arduino_ecosort_l293d/arduino_ecosort_l293d.ino`](arduino_ecosort_l293d/arduino_ecosort_l293d.ino)
-3. Select your Board (**Tools > Board > Arduino Uno**) and Port (**Tools > Port**).
-4. Click **Upload** (Arrow icon).
-5. (Optional) Open **Serial Monitor** at **9600 baud**:
-   * Type `G` and press Enter $\rightarrow$ Servo 1 should move (General Trash).
-   * Type `R` and press Enter $\rightarrow$ Servo 2 should move (Recyclables).
-   * Type `T` and press Enter $\rightarrow$ Runs a full self-test of both servos.
+If you are using the older stacking L293D shield instead:
+* Use sketch: [`hardware/arduino_ecosort_l293d/arduino_ecosort_l293d.ino`](arduino_ecosort_l293d/arduino_ecosort_l293d.ino)
+* `SERVO_1` header = Arduino Pin 10
+* `SERVO_2` header = Arduino Pin 9
 
 ---
 
-## 3. Running with Python Vision Model
+## 4-Way Category & Serial Command Table
 
-Once the Arduino code is uploaded and connected via USB to your computer:
+Both Arduino sketches use the exact same serial commands from Python at **9600 baud**:
+
+| Category | Model Prediction | Serial Cmd | Active Servo / Channel | Default Motion (Adjustable) |
+| :--- | :--- | :---: | :--- | :--- |
+| **Paper** | `paper` | **`'P'`** | Servo 1 (Channel 0 / Pin 10) | Tilts **Left** ($45^\circ$) |
+| **Plastic / Metal** | `plastic_metal` | **`'M'`** | Servo 1 (Channel 0 / Pin 10) | Tilts **Right** ($135^\circ$) |
+| **Organic** | `organic` | **`'O'`** | Servo 2 (Channel 1 / Pin 9) | Tilts **Forward** ($45^\circ$) |
+| **General Trash** | `general` | **`'G'`** | Servo 2 (Channel 1 / Pin 9) | Tilts **Backward** ($135^\circ$) |
+
+---
+
+## Running with the Python Vision System
 
 ```bash
-# 1. Install serial communication library
-pip install pyserial
-
-# 2. Run the live vision script (automatically detects Arduino port)
-python live_smart_bin.py
-
-# Or specify your port explicitly if needed:
-# macOS example:
-python live_smart_bin.py --port /dev/cu.usbmodem1101
-# Windows example:
-python live_smart_bin.py --port COM3
+# Run the live vision script (auto-detects Arduino port)
+python live_smart_bin.py --camera 1
 ```
-
-### How the Logic Works:
-1. The camera scans the center tray.
-2. Background subtraction detects when an object is placed.
-3. The Keras model (`ecosort_model.keras`) predicts the item:
-   - If classified as `paper` or `plastic_metal` $\rightarrow$ Sends `'R'` over USB $\rightarrow$ **Servo 2 moves**.
-   - If classified as `organic` or `general` $\rightarrow$ Sends `'G'` over USB $\rightarrow$ **Servo 1 moves**.
-4. The system pauses for a 2.5-second cooldown while the physical sorting completes before scanning for the next item.

@@ -117,17 +117,21 @@ def main():
             arduino.close()
         return
 
-    print("\n" + "="*55)
-    print(" ECOSORT SMART BIN (L293D DUAL SERVO CONTROL) ONLINE")
-    print("   - Servo 1 (Pin 10) = GENERAL TRASH")
-    print("   - Servo 2 (Pin 9)  = RECYCLABLES")
+    print("\n" + "="*58)
+    print(" ECOSORT SMART BIN: 4-WAY WASTE SEGREGATION ONLINE")
+    print("   [1] PAPER            -> Command 'P' (Servo 1 Left)")
+    print("   [2] PLASTIC / METAL  -> Command 'M' (Servo 1 Right)")
+    print("   [3] ORGANIC          -> Command 'O' (Servo 2 Forward)")
+    print("   [4] GENERAL TRASH    -> Command 'G' (Servo 2 Backward)")
     print("   Press 'q' to quit.")
-    print("="*55 + "\n")
+    print("="*58 + "\n")
 
     locked_text = None
     locked_color = (0, 0, 0)
     empty_frames = 0
     cooldown_until = 0.0  # Timestamp to prevent re-triggering while servo is moving
+    prediction_history = []  # Rolling votes to prevent single-frame false positives
+    REQUIRED_STABLE_FRAMES = 4  # Must be consistently classified for 4 frames
     
     # Background Subtraction Variables
     background_frame = None
@@ -196,8 +200,30 @@ def main():
             if object_detected and not in_cooldown:
                 empty_frames = 0
                 
-                # Run the Keras vision model
-                roi_rgb = cv2.cvtColor(roi, cv2.COLOR_BGR2RGB)
+                # --- Object-Centric Crop (Exclude surrounding tray background) ---
+                pad = 20
+                crop_y1 = max(0, y - pad)
+                crop_y2 = min(roi.shape[0], y + h + pad)
+                crop_x1 = max(0, x - pad)
+                crop_x2 = min(roi.shape[1], x + w + pad)
+                obj_crop = roi[crop_y1:crop_y2, crop_x1:crop_x2]
+                
+                if obj_crop.shape[0] > 15 and obj_crop.shape[1] > 15:
+                    eval_img = obj_crop
+                else:
+                    eval_img = roi
+
+                # Picture-in-Picture (PiP) inset preview showing what the AI is analyzing
+                try:
+                    pip_preview = cv2.resize(eval_img, (90, 90))
+                    cv2.rectangle(frame, (w_f - 105, 50), (w_f - 11, 144), (0, 255, 0), 2)
+                    frame[52:142, w_f - 103:w_f - 13] = pip_preview
+                    cv2.putText(frame, "AI CROP", (w_f - 95, 45), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 255, 0), 1)
+                except Exception:
+                    pass
+
+                # Run Keras Model
+                roi_rgb = cv2.cvtColor(eval_img, cv2.COLOR_BGR2RGB)
                 roi_resized = cv2.resize(roi_rgb, (224, 224))
                 img_array = tf.keras.utils.img_to_array(roi_resized)
                 img_array = tf.expand_dims(img_array, 0)
@@ -205,54 +231,57 @@ def main():
                 predictions = model.predict(img_array, verbose=0)
                 score = predictions[0]
                 max_score = np.max(score)
+                predicted_class = class_names[np.argmax(score)]
                 
-                if max_score > 0.80:
-                    if locked_text is None:
-                        # New object detected! Classify and trigger corresponding servo
-                        predicted_class = class_names[np.argmax(score)]
+                if max_score > 0.82 and locked_text is None:
+                    # Accumulate predictions across consecutive frames to verify stability
+                    prediction_history.append((predicted_class, max_score))
+                    if len(prediction_history) > REQUIRED_STABLE_FRAMES:
+                        prediction_history.pop(0)
+
+                    # Check if all recent frames agree
+                    recent_classes = [p[0] for p in prediction_history]
+                    if len(recent_classes) == REQUIRED_STABLE_FRAMES and len(set(recent_classes)) == 1:
+                        final_class = recent_classes[0]
+                        avg_conf = np.mean([p[1] for p in prediction_history])
                         
-                        # Check if recyclable vs general trash
-                        is_recyclable = (predicted_class in ['paper', 'plastic_metal', 'recyclables'])
-                        
-                        if is_recyclable:
-                            if predicted_class == 'paper':
-                                cat_name = "Paper"
-                            elif predicted_class == 'plastic_metal':
-                                cat_name = "Plastic/Metal"
-                            else:
-                                cat_name = "Recyclable"
-                            action = f"{cat_name} (Recyclable) -> SERVO 2 ACTIVATED"
-                            locked_color = (0, 150, 0)  # Green
-                            
-                            # Trigger Servo 2 (Pin 9 on L293D)
-                            send_servo_command(arduino, 'R', 'SERVO 2 [RECYCLABLES]')
+                        # Route into 4 distinct categories
+                        if final_class == 'paper':
+                            action = "PAPER -> [1/4] PAPER (Servo 1 Left)"
+                            locked_color = (0, 180, 0)  # Green
+                            send_servo_command(arduino, 'P', 'PAPER')
+                        elif final_class == 'plastic_metal':
+                            action = "PLASTIC / METAL -> [2/4] PLASTIC/METAL (Servo 1 Right)"
+                            locked_color = (230, 140, 0)  # Cyan/Blue
+                            send_servo_command(arduino, 'M', 'PLASTIC/METAL')
+                        elif final_class == 'organic':
+                            action = "ORGANIC -> [3/4] ORGANIC (Servo 2 Forward)"
+                            locked_color = (0, 215, 255)  # Yellow / Gold
+                            send_servo_command(arduino, 'O', 'ORGANIC')
                         else:
-                            if predicted_class == 'organic':
-                                cat_name = "Organic"
-                            else:
-                                cat_name = "Trash"
-                            action = f"{cat_name} (General Trash) -> SERVO 1 ACTIVATED"
-                            locked_color = (0, 0, 180)  # Red / Orange
+                            action = "GENERAL TRASH -> [4/4] GENERAL (Servo 2 Backward)"
+                            locked_color = (0, 0, 200)  # Red
+                            send_servo_command(arduino, 'G', 'GENERAL TRASH')
                             
-                            # Trigger Servo 1 (Pin 10 on L293D)
-                            send_servo_command(arduino, 'G', 'SERVO 1 [GENERAL TRASH]')
-                            
-                        locked_text = f"[{max_score*100:.0f}%] {action}"
-                        
-                        # Set 2.5 second cooldown while servos are physically sorting the item
+                        locked_text = f"[{avg_conf*100:.0f}%] {action}"
+                        prediction_history = []
                         cooldown_until = now + 2.5
+                else:
+                    if max_score <= 0.82:
+                        prediction_history = []
             else:
                 if not in_cooldown:
                     # Adaptively update background to handle slow ambient lighting changes
                     cv2.accumulateWeighted(gray_roi, background_frame, 0.05)
                     empty_frames += 1
-                    if empty_frames > 12:
+                    if empty_frames > 10:
                         locked_text = None
+                        prediction_history = []
 
             # --- Top Hardware Status Bar ---
             cv2.rectangle(frame, (0, 0), (w_f, 40), (40, 40, 40), -1)
             if arduino and arduino.is_open:
-                hw_status = f"Arduino: CONNECTED ({arduino.port}) | Servo 1: Trash (Pin 10) | Servo 2: Recycle (Pin 9)"
+                hw_status = f"Arduino: CONNECTED ({arduino.port}) | 4-WAY SEGREGATION ACTIVE"
                 hw_color = (0, 255, 120)
             else:
                 hw_status = "Arduino: SIMULATION MODE (Connect USB or pass --port)"
