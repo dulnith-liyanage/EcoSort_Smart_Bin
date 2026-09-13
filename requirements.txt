@@ -1,5 +1,7 @@
-tensorflow>=2.10.0
 opencv-python>=4.5.0
 numpy
-matplotlib
+torch>=2.0.0
+torchvision>=0.15.0
+transformers>=4.30.0
+pillow
 pyserial>=3.5
