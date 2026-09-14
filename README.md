@@ -42,12 +42,33 @@ pip install -r requirements.txt
 
 ### 3. Run the Live Smart Bin
 ```bash
-# Auto-detects camera and connected Arduino:
+# Standard live run (Auto-detects camera and connected Arduino):
 python live_smart_bin.py
 
-# Or specify camera index explicitly:
-python live_smart_bin.py --camera 0
+# Simulation mode (No Arduino attached):
+python live_smart_bin.py --no-arduino
+
+# Raspberry Pi SSH Headless Mode (no GUI window required):
+python live_smart_bin.py --headless --stable-frames 2
+
+# Tuned confidence threshold:
+python live_smart_bin.py --threshold 0.55
 ```
+
+---
+
+## Interactive Keyboard Shortcuts (In GUI Window)
+
+| Hotkey | Action |
+| :---: | :--- |
+| **`1`** | Manually trigger **Paper** servo (`'P'`) |
+| **`2`** | Manually trigger **Plastic/Metal** servo (`'M'`) |
+| **`3`** | Manually trigger **Organic** servo (`'O'`) |
+| **`4`** | Manually trigger **General Trash** servo (`'G'`) |
+| **`C`** or **`R`** | **Recalibrate Tray**: Resets background subtraction on demand |
+| **`Space`** | **Force Scan**: Evaluates current tray area immediately |
+| **`H`** | Toggle on-screen **Help / Cheat Sheet** overlay |
+| **`Q`** | Clean exit (resets servos to neutral position and closes serial) |
 
 ---
 
