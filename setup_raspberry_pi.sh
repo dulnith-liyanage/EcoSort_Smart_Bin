@@ -15,9 +15,7 @@ sudo apt-get install -y \
     python3-pip \
     python3-venv \
     python3-dev \
-    libgl1-mesa-glx \
-    libglib2.0-0 \
-    libatlas-base-dev \
+    libgl1 \
     libopenblas-dev \
     v4l-utils \
     i2c-tools \
