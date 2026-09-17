@@ -515,6 +515,76 @@ def draw_hud(frame, last_probs, fps, hw_status, hw_color, in_cooldown, locked_te
             cv2.putText(frame, f"- {desc}", (mx1 + 220, sy), cv2.FONT_HERSHEY_SIMPLEX, 0.44, (180, 180, 180), 1, cv2.LINE_AA)
             sy += 22
 
+class CameraCapture:
+    """Unified camera capture supporting Raspberry Pi CSI cameras (Picamera2) and USB/standard cameras (OpenCV)."""
+    def __init__(self, camera_idx=0):
+        self.use_picam2 = False
+        self.picam2 = None
+        self.cap = None
+
+        # 1. On Raspberry Pi / Linux, prioritize native Picamera2 for CSI camera (CAM 0 / CAM 1)
+        if sys.platform.startswith('linux'):
+            try:
+                from picamera2 import Picamera2
+                log_info("[CAMERA] Probing Raspberry Pi CSI Camera via Picamera2...")
+                self.picam2 = Picamera2()
+                config = self.picam2.create_preview_configuration(
+                    main={"size": (640, 480), "format": "RGB888"}
+                )
+                self.picam2.configure(config)
+                self.picam2.start()
+                self.use_picam2 = True
+                log_success("[CAMERA] Raspberry Pi CSI Camera online via Picamera2 (640x480)!")
+                return
+            except Exception as e:
+                log_info(f"[CAMERA] Picamera2 not active ({e}). Falling back to OpenCV VideoCapture...")
+
+        # 2. Fallback to OpenCV (USB cameras, libcamerify wrapper, or desktop)
+        log_info(f"[CAMERA] Opening OpenCV VideoCapture (Index {camera_idx})...")
+        if sys.platform.startswith('linux'):
+            self.cap = cv2.VideoCapture(camera_idx, cv2.CAP_V4L2)
+            if not self.cap.isOpened():
+                self.cap = cv2.VideoCapture(camera_idx)
+        else:
+            self.cap = cv2.VideoCapture(camera_idx)
+
+        if not self.cap.isOpened() and camera_idx != 0:
+            log_warning(f"[CAMERA] Index {camera_idx} failed. Falling back to Index 0...")
+            self.cap = cv2.VideoCapture(0)
+
+        if self.cap is not None and self.cap.isOpened():
+            self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+            self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+            self.cap.set(cv2.CAP_PROP_FPS, 30)
+            log_success(f"[CAMERA] OpenCV VideoCapture ready on index {camera_idx}.")
+
+    def is_opened(self):
+        if self.use_picam2:
+            return True
+        return self.cap is not None and self.cap.isOpened()
+
+    def read(self):
+        if self.use_picam2 and self.picam2 is not None:
+            try:
+                frame_rgb = self.picam2.capture_array()
+                frame_bgr = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR)
+                return True, frame_bgr
+            except Exception:
+                return False, None
+        elif self.cap is not None:
+            return self.cap.read()
+        return False, None
+
+    def release(self):
+        if self.use_picam2 and self.picam2 is not None:
+            try:
+                self.picam2.stop()
+                self.picam2.close()
+            except Exception:
+                pass
+        if self.cap is not None:
+            self.cap.release()
+
 def main():
     parser = argparse.ArgumentParser(description='EcoSort Smart Bin - 2-Axis Pan-Tilt Waste Segregator (Colombo CMC)')
     parser.add_argument('--driver', type=str, default='auto', choices=['auto', 'rpi-i2c', 'pca9685', 'arduino', 'sim'],
@@ -562,33 +632,12 @@ def main():
         tilt_ch=args.tilt_ch
     )
 
-    # Initialize Camera with Auto-Fallback and V4L2 support for Raspberry Pi / Linux
-    log_info(f"Opening Camera (Index {args.camera})...")
-    if sys.platform.startswith('linux'):
-        cap = cv2.VideoCapture(args.camera, cv2.CAP_V4L2)
-        if not cap.isOpened():
-            cap = cv2.VideoCapture(args.camera)
-    else:
-        cap = cv2.VideoCapture(args.camera)
-
-    if not cap.isOpened() and args.camera != 0:
-        log_warning(f"Camera index {args.camera} not found. Falling back to default camera (Index 0)...")
-        if sys.platform.startswith('linux'):
-            cap = cv2.VideoCapture(0, cv2.CAP_V4L2)
-            if not cap.isOpened():
-                cap = cv2.VideoCapture(0)
-        else:
-            cap = cv2.VideoCapture(0)
-
-    if not cap.isOpened():
-        log_error("Could not open camera. Please check USB connection or camera permissions.")
+    # Initialize Camera (Picamera2 CSI or OpenCV USB)
+    cam = CameraCapture(args.camera)
+    if not cam.is_opened():
+        log_error("Could not open camera. Please check camera connection or permissions.")
         controller.close()
         return
-
-    # Bound resolution to 640x480 to preserve high framerate on Raspberry Pi USB bus
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-    cap.set(cv2.CAP_PROP_FPS, 30)
 
     print("\n" + "="*68)
     print(f" {C_BOLD}{C_GREEN}ECOSORT SMART BIN: 2-AXIS PAN-TILT 4-WAY WASTE SEGREGATION{C_RESET}")
@@ -627,7 +676,7 @@ def main():
 
     try:
         while True:
-            ret, frame = cap.read()
+            ret, frame = cam.read()
             if not ret:
                 log_error("Camera frame read failed. Exiting loop.")
                 break
@@ -807,7 +856,7 @@ def main():
         print(f"\n{C_YELLOW}[EXIT] Stopped by user (Ctrl+C).{C_RESET}")
 
     finally:
-        cap.release()
+        cam.release()
         if not is_headless:
             cv2.destroyAllWindows()
 
