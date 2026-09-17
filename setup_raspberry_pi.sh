@@ -16,7 +16,10 @@ sudo apt-get install -y \
     python3-venv \
     python3-dev \
     libgl1 \
+    libopenblas0 \
     libopenblas-dev \
+    liblapack-dev \
+    libgomp1 \
     v4l-utils \
     i2c-tools \
     python3-smbus
@@ -50,6 +53,16 @@ echo "Installing remaining project dependencies..."
 
 echo "[6/6] Pre-caching OpenAI Zero-Shot CLIP ViT-B/32 model weights..."
 ./venv/bin/python -c "
+import os, sys, ctypes
+if sys.platform.startswith('linux'):
+    for p in ['/usr/lib/aarch64-linux-gnu/libopenblas.so.0', '/usr/lib/aarch64-linux-gnu/libopenblas.so']:
+        if os.path.exists(p):
+            try:
+                ctypes.CDLL(p, mode=ctypes.RTLD_GLOBAL)
+                break
+            except Exception:
+                pass
+
 from transformers import CLIPModel, CLIPProcessor
 print('Downloading and caching OpenAI CLIP weights (~350MB)...')
 CLIPModel.from_pretrained('openai/clip-vit-base-patch32')

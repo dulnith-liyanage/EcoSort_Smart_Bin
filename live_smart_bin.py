@@ -2,10 +2,26 @@ import cv2
 import numpy as np
 import os
 import sys
+import ctypes
 import json
 import argparse
 import time
 from PIL import Image
+
+# On Linux ARM64 (Raspberry Pi), pre-load OpenBLAS globally to resolve BLAS symbols (sbgemm_)
+if sys.platform.startswith('linux'):
+    for _lib_path in [
+        '/usr/lib/aarch64-linux-gnu/libopenblas.so.0',
+        '/usr/lib/aarch64-linux-gnu/libopenblas.so',
+        '/usr/lib/arm-linux-gnueabihf/libopenblas.so.0'
+    ]:
+        if os.path.exists(_lib_path):
+            try:
+                ctypes.CDLL(_lib_path, mode=ctypes.RTLD_GLOBAL)
+                break
+            except Exception:
+                pass
+
 import torch
 from transformers import CLIPProcessor, CLIPModel
 
