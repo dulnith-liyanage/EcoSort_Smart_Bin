@@ -37,8 +37,15 @@ else
     echo "Virtual environment already exists."
 fi
 
-echo "[5/6] Installing Python packages (PyTorch, Transformers, OpenCV, Adafruit-ServoKit)..."
+echo "[5/6] Installing Python packages (CPU-Only PyTorch, Transformers, OpenCV, Adafruit-ServoKit)..."
 ./venv/bin/pip install --upgrade pip setuptools wheel
+
+# Install pure CPU-only PyTorch (skips ~1.7GB of useless NVIDIA CUDA packages)
+echo "Installing lightweight CPU-only PyTorch..."
+./venv/bin/pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+
+# Install remaining vision, robotics, and NLP dependencies
+echo "Installing remaining project dependencies..."
 ./venv/bin/pip install -r requirements.txt
 
 echo "[6/6] Pre-caching OpenAI Zero-Shot CLIP ViT-B/32 model weights..."
