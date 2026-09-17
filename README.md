@@ -1,58 +1,55 @@
 # EcoSort: AI-Powered Smart Waste Bin (Zero-Shot CLIP)
 
-EcoSort is an Edge AI computer vision system designed to automate waste segregation into **4 distinct categories**:
-1. **Paper** (Cardboard boxes, packaging, sheets)
-2. **Plastic / Metal** (Bottles, containers, soda cans)
-3. **Organic** (Food waste, fruit peels, vegetables)
-4. **General Trash** (Dirty wrappers, non-recyclable landfill waste)
+EcoSort is an Edge AI computer vision and robotic sorting system designed to automate municipal waste segregation into **4 distinct bins** following the **Colombo Municipal Council (CMC) / Sri Lanka Solid Waste Guidelines**:
+1. **Paper & Cardboard (Blue Bin)**: Cardboard packaging, newspapers, textbooks, cartons, clean paper sheets.
+2. **Plastics & Polythene (Orange Bin)**: PET drink bottles, food containers, polythene grocery bags, lunch sheets, milk packets.
+3. **Organic / Biodegradable Waste (Green Bin)**: Cooked food scraps, fruit peels, vegetable waste, coconut shells, tea leaves.
+4. **Glass, Metal & Residual Landfill Trash (Red/Black Bin)**: Aluminum soda cans, tin cans, glass bottles, foil snack wrappers, non-recyclables.
 
-Powered by **OpenAI's Zero-Shot CLIP**, EcoSort classifies waste in real time without requiring manual dataset training, and communicates via USB Serial with an **Arduino (L293D Shield or PCA9685)** to physically trigger servo motors.
+Powered by **OpenAI's Zero-Shot CLIP**, EcoSort classifies waste in real time and commands an **Arduino-driven 2-Axis Pan-Tilt Servo Controller** to rotate horizontally to the designated bin and dump the waste with a downward pitch.
 
 ---
 
 ## Hardware Setup
 - **Computing Device:** Mac or Raspberry Pi (with webcam / Pi Camera Module)
-- **Microcontroller:** Arduino Uno / Nano / Mega
-- **Motor Driver:** PCA9685 16-Channel PWM Driver or L293D Motor Shield
-- **Actuators:** 2× Servo Motors (SG90 or MG996R)
+## Hardware Options
 
----
+### Option A: Direct Raspberry Pi I2C (No Arduino Needed - Recommended!)
+Connect the PCA9685 driver directly to the Raspberry Pi's 40-pin GPIO header:
 
-## Software Stack
-- **Python 3**
-- **OpenAI CLIP** (`transformers` / `clip-vit-base-patch32`) — Zero-shot natural language image classification
-- **PyTorch** (MPS Metal acceleration on Apple Silicon / CPU on Raspberry Pi)
-- **OpenCV** (Background subtraction motion detection, object cropping)
-- **pySerial** (USB Serial communication to Arduino at 9600 baud)
+| PCA9685 Pin | Raspberry Pi 40-Pin Header | Purpose |
+| :--- | :--- | :--- |
+| **VCC** | **Pin 1 (3.3V Power)** | Powers PCA9685 logic chip with 3.3V |
+| **GND** | **Pin 6 (or Pin 9 GND)** | Common Ground |
+| **SDA** | **Pin 3 (GPIO 2 / I2C1 SDA)** | I2C Data |
+| **SCL** | **Pin 5 (GPIO 3 / I2C1 SCL)** | I2C Clock |
+| **V+ (Screw Terminal)** | **External 5V–6V 3A Power Supply** | Powers the high-torque MG996R motors |
+
+- **MG996R Pan Servo**: Plugs into **Channel 0** on PCA9685.
+- **MG996R Tilt Servo**: Plugs into **Channel 1** on PCA9685.
+
+### Option B: Arduino over USB Serial
+If using an Arduino Uno / Nano as a USB bridge, connect Arduino to PCA9685 (SDA $\rightarrow$ A4, SCL $\rightarrow$ A5) and plug the Arduino into the Pi or Mac via USB.
 
 ---
 
 ## Quickstart
 
-### 1. Install Dependencies
+### 1. Automated Setup on Raspberry Pi
 ```bash
-pip install -r requirements.txt
+bash setup_raspberry_pi.sh
 ```
 
-### 2. Upload Firmware to Arduino
-* For **PCA9685 16-Channel Driver**:  
-  Open and upload [`hardware/arduino_ecosort_pca9685/arduino_ecosort_pca9685.ino`](hardware/arduino_ecosort_pca9685/arduino_ecosort_pca9685.ino)
-* For **L293D Shield**:  
-  Open and upload [`hardware/arduino_ecosort_l293d/arduino_ecosort_l293d.ino`](hardware/arduino_ecosort_l293d/arduino_ecosort_l293d.ino)
-
-### 3. Run the Live Smart Bin
+### 2. Run the Live Smart Bin
 ```bash
-# Standard live run (Auto-detects camera and connected Arduino):
+# Auto-detects Direct Raspberry Pi I2C or connected Arduino:
 python live_smart_bin.py
 
-# Simulation mode (No Arduino attached):
-python live_smart_bin.py --no-arduino
+# Explicit Direct Raspberry Pi I2C mode (SSH Headless):
+python live_smart_bin.py --driver rpi-i2c --headless --stable-frames 2
 
-# Raspberry Pi SSH Headless Mode (no GUI window required):
-python live_smart_bin.py --headless --stable-frames 2
-
-# Tuned confidence threshold:
-python live_smart_bin.py --threshold 0.55
+# Simulation Mode (No hardware attached):
+python live_smart_bin.py --driver sim
 ```
 
 ---
@@ -61,10 +58,10 @@ python live_smart_bin.py --threshold 0.55
 
 | Hotkey | Action |
 | :---: | :--- |
-| **`1`** | Manually trigger **Paper** servo (`'P'`) |
-| **`2`** | Manually trigger **Plastic/Metal** servo (`'M'`) |
-| **`3`** | Manually trigger **Organic** servo (`'O'`) |
-| **`4`** | Manually trigger **General Trash** servo (`'G'`) |
+| **`1`** | Manually trigger **Paper (Blue Bin)** (`'P'` -> Pan 30° -> Dump) |
+| **`2`** | Manually trigger **Plastic & Polythene (Orange Bin)** (`'M'` -> Pan 70° -> Dump) |
+| **`3`** | Manually trigger **Organic Waste (Green Bin)** (`'O'` -> Pan 110° -> Dump) |
+| **`4`** | Manually trigger **Glass/Metal/Residual (Red Bin)** (`'G'` -> Pan 150° -> Dump) |
 | **`C`** or **`R`** | **Recalibrate Tray**: Resets background subtraction on demand |
 | **`Space`** | **Force Scan**: Evaluates current tray area immediately |
 | **`H`** | Toggle on-screen **Help / Cheat Sheet** overlay |
@@ -72,11 +69,23 @@ python live_smart_bin.py --threshold 0.55
 
 ---
 
-## 4-Way Hardware Trigger Mapping
+## Colombo Municipal Council (CMC) 4-Bin Pan-Tilt Layout
 
-| Waste Category | Serial Command | Default Servo Action |
-| :--- | :---: | :--- |
-| **Paper** | `'P'` | Servo 1 tilts Left ($45^\circ$) |
-| **Plastic / Metal** | `'M'` | Servo 1 tilts Right ($135^\circ$) |
-| **Organic** | `'O'` | Servo 2 tilts Forward ($45^\circ$) |
-| **General Trash** | `'G'` | Servo 2 tilts Backward ($135^\circ$) |
+```
+         [Front Arc of 4 Bins]
+   
+   (Blue Bin)     (Orange Bin)     (Green Bin)     (Red Bin)
+    Paper           Plastic          Organic        Residual
+     30°              70°             110°            150°
+       \               |               /               /
+        \              |              /               /
+         ───────> [2-Axis Pan-Tilt] <───────
+                     (Home: 90°)
+```
+
+| Waste Category (CMC System) | Bin Color | Serial Cmd | Pan Angle | Tilt Action |
+| :--- | :---: | :---: | :---: | :--- |
+| **Paper & Cardboard** | **Blue** | `'P'` | **30° (Far Left)** | Pan 30° $\rightarrow$ Tilt down 30° $\rightarrow$ Return Home |
+| **Plastics & Polythene** | **Orange** | `'M'` | **70° (Mid-Left)** | Pan 70° $\rightarrow$ Tilt down 30° $\rightarrow$ Return Home |
+| **Organic / Food Waste** | **Green** | `'O'` | **110° (Mid-Right)** | Pan 110° $\rightarrow$ Tilt down 30° $\rightarrow$ Return Home |
+| **Glass, Metal & Residual** | **Red / Black** | `'G'` | **150° (Far Right)** | Pan 150° $\rightarrow$ Tilt down 30° $\rightarrow$ Return Home |

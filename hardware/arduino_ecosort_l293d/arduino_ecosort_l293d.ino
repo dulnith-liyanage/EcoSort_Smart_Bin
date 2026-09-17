@@ -1,152 +1,169 @@
 /*
- * EcoSort Smart Bin - 4-Way Waste Segregator (L293D Shield)
+ * EcoSort Smart Bin - 4-Way Waste Segregator
+ * 2-Axis Pan-Tilt Servo Controller (Direct Arduino Pins / L293D Shield)
+ * Tailored for Colombo Municipal Council (CMC) / Sri Lanka Solid Waste Guidelines
  * 
- * Target Board: Arduino Uno / Mega with L293D Motor Driver Shield
+ * Target Board: Arduino Uno / Mega
+ * Pinout:
+ *   - PAN Servo  (Horizontal base)  -> Digital Pin 10 (or SERVO_1 on L293D)
+ *   - TILT Servo (Vertical dumping)  -> Digital Pin 9  (or SERVO_2 on L293D)
  * 
- * Pinout on standard L293D Shield:
- *   - SERVO_1 header = Arduino Digital Pin 10
- *   - SERVO_2 header = Arduino Digital Pin 9
- *
- * 4 Categories Supported:
- *   1. PAPER            -> Trigger Paper action (e.g. Servo 1 Tilt Left)
- *   2. PLASTIC / METAL  -> Trigger Plastic/Metal action (e.g. Servo 1 Tilt Right)
- *   3. ORGANIC          -> Trigger Organic action (e.g. Servo 2 Tilt Forward)
- *   4. GENERAL TRASH    -> Trigger General action (e.g. Servo 2 Tilt Backward)
- * 
- * Commands received over Serial (9600 baud):
- *   - 'P' or '1' -> Paper
- *   - 'M' or '2' -> Plastic or Metal
- *   - 'O' or '3' -> Organic
- *   - 'G' or '4' -> General Trash
- *   - '0'        -> Reset both servos to Neutral
- *   - 'T'        -> Full 4-category Self-Test sequence
+ * Colombo Municipal Council (CMC) 4-Bin Arc Layout:
+ *   - Bin 1 (Far Left   - Pan 30 deg)  : BLUE   -> Paper & Cardboard ('P' / '1')
+ *   - Bin 2 (Mid-Left   - Pan 70 deg)  : ORANGE -> Plastics & Polythene ('M' / '2')
+ *   - Bin 3 (Mid-Right  - Pan 110 deg) : GREEN  -> Organic / Biodegradable Food Waste ('O' / '3')
+ *   - Bin 4 (Far Right  - Pan 150 deg) : RED    -> Glass, Metal & Residual Landfill Trash ('G' / '4')
  */
 
 #include <Servo.h>
 
-// --- Pin Definitions on L293D Motor Shield ---
-const int SERVO1_PIN = 10; // SERVO_1 header on L293D shield
-const int SERVO2_PIN = 9;  // SERVO_2 header on L293D shield
+// --- Pin Definitions ---
+const int PAN_PIN  = 10; // Pan Servo (Horizontal Base)
+const int TILT_PIN = 9;  // Tilt Servo (Pitch / Dumping)
 
-// --- Angle Settings (Adjust to match your physical bin/tray mechanism) ---
-const int S1_NEUTRAL = 90;
-const int S2_NEUTRAL = 90;
+Servo panServo;
+Servo tiltServo;
 
-// Category 1: Paper (Servo 1 dumps Left)
-const int S1_PAPER = 45;
+// --- Pan-Tilt Home & Dump Positions ---
+const int PAN_HOME       = 90;  // Straight ahead / center
+const int TILT_HOME      = 90;  // Level / Flat tray (holds waste flat while scanning & panning)
+const int TILT_DUMP      = 30;  // Pitched down forward to dump (invert to 150 if horn is reversed)
 
-// Category 2: Plastic / Metal (Servo 1 dumps Right)
-const int S1_PLASTIC_METAL = 135;
+const int DUMP_HOLD_MS   = 1100; // Time in ms to pause at dump angle
+const int STEP_DELAY_MS  = 9;    // Speed control: ms per 1-degree step
 
-// Category 3: Organic (Servo 2 dumps Forward)
-const int S2_ORGANIC = 45;
+// --- Colombo Municipal Council (CMC) 4-Bin Pan Angles ---
+const int PAN_BIN_PAPER    = 30;  // [1] Blue Bin: Paper & Cardboard (Far Left)
+const int PAN_BIN_PLASTIC  = 70;  // [2] Orange Bin: Plastics & Polythene (Mid-Left)
+const int PAN_BIN_ORGANIC  = 110; // [3] Green Bin: Organic / Food Waste (Mid-Right)
+const int PAN_BIN_RESIDUAL = 150; // [4] Red/Black Bin: Glass/Metal/Residual Trash (Far Right)
 
-// Category 4: General Trash (Servo 2 dumps Backward)
-const int S2_GENERAL = 135;
+int currentPanAngle  = PAN_HOME;
+int currentTiltAngle = TILT_HOME;
 
-const int HOLD_TIME_MS = 1200; // Time in ms to hold dump position
+// Helper: Smooth interpolated motion
+void smoothMove(Servo &servo, int &currentAngle, int targetAngle, int stepDelay) {
+  targetAngle = constrain(targetAngle, 0, 180);
+  if (currentAngle == targetAngle) return;
 
-Servo servo1;
-Servo servo2;
-
-void triggerPaper() {
-  Serial.println(F("ACK: Activating -> [1/4] PAPER (Servo 1 -> 45 deg)"));
-  servo1.write(S1_PAPER);
-  delay(HOLD_TIME_MS);
-  servo1.write(S1_NEUTRAL);
-  Serial.println(F("ACK: Returned to Neutral"));
+  int step = (targetAngle > currentAngle) ? 1 : -1;
+  for (int a = currentAngle; a != targetAngle; a += step) {
+    servo.write(a);
+    delay(stepDelay);
+  }
+  servo.write(targetAngle);
+  currentAngle = targetAngle;
+  delay(20);
 }
 
-void triggerPlasticMetal() {
-  Serial.println(F("ACK: Activating -> [2/4] PLASTIC/METAL (Servo 1 -> 135 deg)"));
-  servo1.write(S1_PLASTIC_METAL);
-  delay(HOLD_TIME_MS);
-  servo1.write(S1_NEUTRAL);
-  Serial.println(F("ACK: Returned to Neutral"));
+// Coordinated Pan-Tilt Dumping Sequence
+void dumpIntoBin(int targetPanAngle, const char* categoryName, const char* binColor) {
+  Serial.print(F(">>> ACTION: Segregating to ["));
+  Serial.print(categoryName);
+  Serial.print(F("] -> "));
+  Serial.print(binColor);
+  Serial.print(F(" Bin @ Pan "));
+  Serial.print(targetPanAngle);
+  Serial.println(F(" deg"));
+
+  // Step 1: Pan to target bin while Tilt remains level
+  smoothMove(panServo, currentPanAngle, targetPanAngle, STEP_DELAY_MS);
+  delay(180);
+
+  // Step 2: Tilt downward to slide waste into bin
+  smoothMove(tiltServo, currentTiltAngle, TILT_DUMP, STEP_DELAY_MS);
+
+  // Step 3: Hold dump position + gentle shake to dislodge items
+  delay(DUMP_HOLD_MS);
+  tiltServo.write(TILT_DUMP - 8);
+  delay(120);
+  tiltServo.write(TILT_DUMP);
+  delay(200);
+
+  // Step 4: Tilt back to level HOME
+  smoothMove(tiltServo, currentTiltAngle, TILT_HOME, STEP_DELAY_MS);
+  delay(180);
+
+  // Step 5: Pan back to center HOME
+  smoothMove(panServo, currentPanAngle, PAN_HOME, STEP_DELAY_MS);
+
+  Serial.println(F("ACK: Waste dumped successfully. Tray returned to HOME."));
 }
 
-void triggerOrganic() {
-  Serial.println(F("ACK: Activating -> [3/4] ORGANIC (Servo 2 -> 45 deg)"));
-  servo2.write(S2_ORGANIC);
-  delay(HOLD_TIME_MS);
-  servo2.write(S2_NEUTRAL);
-  Serial.println(F("ACK: Returned to Neutral"));
-}
-
-void triggerGeneral() {
-  Serial.println(F("ACK: Activating -> [4/4] GENERAL TRASH (Servo 2 -> 135 deg)"));
-  servo2.write(S2_GENERAL);
-  delay(HOLD_TIME_MS);
-  servo2.write(S2_NEUTRAL);
-  Serial.println(F("ACK: Returned to Neutral"));
-}
-
-void resetBoth() {
-  servo1.write(S1_NEUTRAL);
-  servo2.write(S2_NEUTRAL);
-  Serial.println(F("ACK: Both servos at Neutral (90 deg)"));
+void resetToHome() {
+  smoothMove(tiltServo, currentTiltAngle, TILT_HOME, STEP_DELAY_MS);
+  smoothMove(panServo, currentPanAngle, PAN_HOME, STEP_DELAY_MS);
+  Serial.println(F("ACK: Returned to HOME position (Pan: 90 deg, Tilt: 90 deg)"));
 }
 
 void selfTest() {
-  Serial.println(F("ACK: Running 4-Way Self-Test..."));
-  triggerPaper();
-  delay(400);
-  triggerPlasticMetal();
-  delay(400);
-  triggerOrganic();
-  delay(400);
-  triggerGeneral();
-  Serial.println(F("ACK: 4-Way Self-Test Complete"));
+  Serial.println(F("=== ECOSORT PAN-TILT 4-BIN SELF-TEST ==="));
+  delay(500);
+  dumpIntoBin(PAN_BIN_PAPER,    "PAPER & CARDBOARD",      "BLUE");
+  delay(600);
+  dumpIntoBin(PAN_BIN_PLASTIC,  "PLASTICS & POLYTHENE",   "ORANGE");
+  delay(600);
+  dumpIntoBin(PAN_BIN_ORGANIC,  "ORGANIC / FOOD WASTE",   "GREEN");
+  delay(600);
+  dumpIntoBin(PAN_BIN_RESIDUAL, "GLASS/METAL/RESIDUAL",   "RED");
+  Serial.println(F("=== SELF-TEST SEQUENCE COMPLETED ==="));
 }
 
 void setup() {
   Serial.begin(9600);
-  
-  // Attach servos to L293D shield pins
-  servo1.attach(SERVO1_PIN);
-  servo2.attach(SERVO2_PIN);
 
-  // Initialize neutral positions
-  servo1.write(S1_NEUTRAL);
-  servo2.write(S2_NEUTRAL);
+  panServo.attach(PAN_PIN);
+  tiltServo.attach(TILT_PIN);
 
-  delay(500);
-  Serial.println(F("ECOSORT_READY: 4-Way Waste Segregator Online (Paper, Plastic/Metal, Organic, General)"));
+  panServo.write(PAN_HOME);
+  tiltServo.write(TILT_HOME);
+  currentPanAngle  = PAN_HOME;
+  currentTiltAngle = TILT_HOME;
+
+  delay(300);
+
+  Serial.println(F("ECOSORT_ONLINE: Direct Servo Pan-Tilt Waste Segregator (Colombo CMC)"));
+  Serial.println(F("Layout: [P]=Blue(30 deg) | [M]=Orange(70 deg) | [O]=Green(110 deg) | [G]=Red(150 deg)"));
 }
 
 void loop() {
   if (Serial.available() > 0) {
     char cmd = Serial.read();
 
-    // Ignore whitespace / newlines
     if (cmd == '\r' || cmd == '\n' || cmd == ' ') {
       return;
     }
 
     switch (cmd) {
       case 'P':
+      case 'p':
       case '1':
-        triggerPaper();
+        dumpIntoBin(PAN_BIN_PAPER, "PAPER & CARDBOARD", "BLUE");
         break;
 
       case 'M':
+      case 'm':
       case '2':
-        triggerPlasticMetal();
+        dumpIntoBin(PAN_BIN_PLASTIC, "PLASTICS & POLYTHENE", "ORANGE");
         break;
 
       case 'O':
+      case 'o':
       case '3':
-        triggerOrganic();
+        dumpIntoBin(PAN_BIN_ORGANIC, "ORGANIC / FOOD WASTE", "GREEN");
         break;
 
       case 'G':
+      case 'g':
       case '4':
-        triggerGeneral();
+        dumpIntoBin(PAN_BIN_RESIDUAL, "GLASS, METAL & RESIDUAL TRASH", "RED");
         break;
 
       case '0':
+      case 'H':
+      case 'h':
       case 'N':
-        resetBoth();
+        resetToHome();
         break;
 
       case 'T':

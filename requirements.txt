@@ -5,3 +5,4 @@ torchvision>=0.15.0
 transformers>=4.30.0
 pillow
 pyserial>=3.5
+adafruit-circuitpython-servokit>=1.3.0

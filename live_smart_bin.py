@@ -39,36 +39,181 @@ def log_sort_event(category, confidence, cmd, desc):
     print(f"\n{C_BOLD}{C_GREEN}>>> [SORT EVENT] {category.upper()} ({confidence*100:.1f}% confidence) -> Triggering '{cmd}' ({desc}){C_RESET}\n")
 
 # Category Definitions, Hardware Commands, and UI Colors (BGR)
+# Aligned with Colombo Municipal Council (CMC) / Sri Lanka Solid Waste Guidelines
 CATEGORY_CONFIG = {
     'paper': {
-        'label': 'Paper',
+        'label': 'Paper (Blue Bin)',
         'cmd': 'P',
-        'servo_desc': 'Servo 1 Left (45 deg)',
-        'color': (80, 220, 80),      # Soft Green
-        'default_prompt': "a piece of paper, cardboard box, brown corrugated cardboard, notebook, or paper packaging"
+        'servo_desc': 'Pan 30 deg (Left) -> Tilt & Dump',
+        'color': (235, 135, 40),      # Colombo CMC Blue (BGR: B=235, G=135, R=40)
+        'default_prompt': "a piece of paper, cardboard box, brown corrugated cardboard, newspaper, magazine, book, or clean paper packaging"
     },
     'plastic_metal': {
-        'label': 'Plastic/Metal',
+        'label': 'Plastic/Polythene (Orange Bin)',
         'cmd': 'M',
-        'servo_desc': 'Servo 1 Right (135 deg)',
-        'color': (255, 170, 50),     # Azure / Blue
-        'default_prompt': "a plastic bottle, plastic container, aluminum soda can, or metal can"
+        'servo_desc': 'Pan 70 deg (Mid-Left) -> Tilt & Dump',
+        'color': (30, 140, 255),     # Colombo CMC Orange (BGR: B=30, G=140, R=255)
+        'default_prompt': "a plastic water bottle, clear PET bottle, plastic food container, polythene grocery bag, lunch sheet, milk packet, or plastic cup"
     },
     'organic': {
-        'label': 'Organic',
+        'label': 'Organic Waste (Green Bin)',
         'cmd': 'O',
-        'servo_desc': 'Servo 2 Forward (45 deg)',
-        'color': (0, 215, 255),      # Gold / Amber
-        'default_prompt': "organic food waste, fruit, vegetable, food scraps, or banana peel"
+        'servo_desc': 'Pan 110 deg (Mid-Right) -> Tilt & Dump',
+        'color': (60, 210, 60),      # Colombo CMC Green (BGR: B=60, G=210, R=60)
+        'default_prompt': "organic food waste, cooked rice, fruit peels, banana skin, vegetable scraps, coconut shell, tea leaves, or garden leaves"
     },
     'general': {
-        'label': 'General Trash',
+        'label': 'Metal/Residual (Red Bin)',
         'cmd': 'G',
-        'servo_desc': 'Servo 2 Backward (135 deg)',
-        'color': (80, 80, 235),      # Crimson / Red
-        'default_prompt': "dirty non-recyclable garbage, greasy snack wrapper, or general landfill trash"
+        'servo_desc': 'Pan 150 deg (Right) -> Tilt & Dump',
+        'color': (60, 60, 230),      # Colombo CMC Red (BGR: B=60, G=60, R=230)
+        'default_prompt': "aluminum soda can, metal tin can, glass bottle, multi-layer foil snack wrapper, chip bag, styrofoam, or non-recyclable residual trash"
     }
 }
+
+# Pan angles for 4 Colombo Municipal Council bins
+PAN_ANGLES = {
+    'paper': 30,         # Blue Bin (Far Left)
+    'plastic_metal': 70, # Orange Bin (Mid-Left)
+    'organic': 110,      # Green Bin (Mid-Right)
+    'general': 150       # Red Bin (Far Right)
+}
+
+class BaseServoController:
+    """Base interface for Servo Actuation."""
+    def trigger_sort(self, cat_key, cfg):
+        raise NotImplementedError
+
+    def reset_home(self):
+        pass
+
+    def close(self):
+        pass
+
+    @property
+    def status_str(self):
+        return "SIMULATION"
+
+class DirectPca9685Controller(BaseServoController):
+    """Direct Raspberry Pi I2C control of PCA9685 without requiring an Arduino."""
+    def __init__(self, pan_channel=0, tilt_channel=1, address=0x40):
+        try:
+            from adafruit_servokit import ServoKit
+        except ImportError:
+            raise RuntimeError("Missing 'adafruit-circuitpython-servokit'. Install it via: pip install adafruit-circuitpython-servokit")
+
+        self.kit = ServoKit(channels=16, address=address)
+        self.pan_ch = pan_channel
+        self.tilt_ch = tilt_channel
+
+        # Standard MG996R servo pulse width range (600us to 2400us)
+        self.kit.servo[self.pan_ch].set_pulse_width_range(600, 2400)
+        self.kit.servo[self.tilt_ch].set_pulse_width_range(600, 2400)
+
+        self.current_pan = 90
+        self.current_tilt = 90
+        self.reset_home()
+        log_success(f"Direct Raspberry Pi I2C PCA9685 Connected (Pan: Ch{pan_channel}, Tilt: Ch{tilt_channel})")
+
+    def _smooth_move(self, channel, from_ang, to_ang, step_delay=0.009):
+        from_ang = int(from_ang)
+        to_ang = int(to_ang)
+        if from_ang == to_ang:
+            return
+        step = 1 if to_ang > from_ang else -1
+        for a in range(from_ang, to_ang + step, step):
+            self.kit.servo[channel].angle = a
+            time.sleep(step_delay)
+
+    def trigger_sort(self, cat_key, cfg):
+        target_pan = PAN_ANGLES.get(cat_key, 90)
+        log_info(f"[RPi I2C PCA9685] Panning to {target_pan} deg for {cfg['label']}...")
+
+        # Step 1: Pan to target bin angle while tilt remains level (90 deg)
+        self._smooth_move(self.pan_ch, self.current_pan, target_pan)
+        self.current_pan = target_pan
+        time.sleep(0.18)
+
+        # Step 2: Tilt downward to 30 deg to slide waste into bin
+        log_info("[RPi I2C PCA9685] Tilting downward to 30 deg...")
+        self._smooth_move(self.tilt_ch, self.current_tilt, 30)
+        self.current_tilt = 30
+        time.sleep(1.1)
+
+        # Step 3: Gentle vibration pulse to dislodge items
+        try:
+            self.kit.servo[self.tilt_ch].angle = 22
+            time.sleep(0.12)
+            self.kit.servo[self.tilt_ch].angle = 30
+            time.sleep(0.20)
+        except Exception:
+            pass
+
+        # Step 4: Tilt back to level HOME (90 deg)
+        self._smooth_move(self.tilt_ch, self.current_tilt, 90)
+        self.current_tilt = 90
+        time.sleep(0.18)
+
+        # Step 5: Pan back to center HOME (90 deg)
+        self._smooth_move(self.pan_ch, self.current_pan, 90)
+        self.current_pan = 90
+        log_success("Pan-Tilt cycle complete. Returned to HOME.")
+
+    def reset_home(self):
+        self._smooth_move(self.tilt_ch, self.current_tilt, 90)
+        self.current_tilt = 90
+        self._smooth_move(self.pan_ch, self.current_pan, 90)
+        self.current_pan = 90
+
+    def close(self):
+        self.reset_home()
+
+    @property
+    def status_str(self):
+        return "Hardware: RASPBERRY PI I2C (PCA9685)"
+
+class ArduinoSerialController(BaseServoController):
+    """Arduino over USB Serial."""
+    def __init__(self, ser):
+        self.ser = ser
+
+    def trigger_sort(self, cat_key, cfg):
+        cmd = cfg['cmd']
+        try:
+            self.ser.write(cmd.encode('utf-8'))
+            self.ser.flush()
+            log_info(f"[ARDUINO TRIGGER] Sent '{cmd}' -> {cfg['label']}")
+        except Exception as e:
+            log_error(f"Failed to send serial command: {e}")
+
+    def reset_home(self):
+        try:
+            self.ser.write(b'0')
+            time.sleep(0.2)
+        except Exception:
+            pass
+
+    def close(self):
+        self.reset_home()
+        try:
+            self.ser.close()
+            log_success("Arduino serial connection closed.")
+        except Exception:
+            pass
+
+    @property
+    def status_str(self):
+        return f"Hardware: ARDUINO ({self.ser.port})"
+
+class SimulatedServoController(BaseServoController):
+    """Simulation fallback."""
+    def trigger_sort(self, cat_key, cfg):
+        target_pan = PAN_ANGLES.get(cat_key, 90)
+        log_info(f"[SIMULATION TRIGGER] Pan {target_pan} deg -> Dump -> {cfg['label']}")
+
+    @property
+    def status_str(self):
+        return "Hardware: SIMULATION"
 
 def connect_arduino(port=None, baud=9600):
     """Auto-detect or connect to Arduino over USB Serial."""
@@ -76,7 +221,6 @@ def connect_arduino(port=None, baud=9600):
         import serial
         import serial.tools.list_ports
     except ImportError:
-        log_warning("'pyserial' not installed. Running in SIMULATION MODE.")
         return None
 
     if port and port.lower() != 'auto':
@@ -85,8 +229,7 @@ def connect_arduino(port=None, baud=9600):
             time.sleep(2.0)
             log_success(f"Connected to Arduino on {port} @ {baud} baud.")
             return ser
-        except Exception as e:
-            log_warning(f"Could not open {port}: {e}. Running in SIMULATION MODE.")
+        except Exception:
             return None
 
     ports = list(serial.tools.list_ports.comports())
@@ -106,24 +249,36 @@ def connect_arduino(port=None, baud=9600):
             log_success(f"Auto-detected Arduino on {candidate_port} @ {baud} baud.")
             ser.reset_input_buffer()
             return ser
-        except Exception as e:
-            log_warning(f"Found {candidate_port} but failed to open: {e}. Running in SIMULATION MODE.")
+        except Exception:
             return None
 
-    log_warning("No Arduino detected. Running in SIMULATION MODE.")
     return None
 
-def send_servo_command(arduino, cmd_char, label):
-    """Sends a single-byte command to Arduino over Serial."""
-    if arduino and arduino.is_open:
+def init_hardware_controller(driver_mode='auto', port='auto', baud=9600, pan_ch=0, tilt_ch=1):
+    """Initializes the appropriate hardware servo controller."""
+    if driver_mode == 'sim':
+        log_info("Running in SIMULATION MODE as requested.")
+        return SimulatedServoController()
+
+    # 1. Direct Raspberry Pi I2C
+    if driver_mode in ['auto', 'rpi-i2c', 'pca9685']:
         try:
-            arduino.write(cmd_char.encode('utf-8'))
-            arduino.flush()
-            log_info(f"Hardware Trigger: Sent '{cmd_char}' to Arduino -> {label}")
+            if os.path.exists('/dev/i2c-1') or driver_mode in ['rpi-i2c', 'pca9685']:
+                return DirectPca9685Controller(pan_channel=pan_ch, tilt_channel=tilt_ch)
         except Exception as e:
-            log_error(f"Failed to send serial command: {e}")
-    else:
-        log_info(f"Simulation Trigger: Command '{cmd_char}' -> {label} (Arduino simulated)")
+            if driver_mode in ['rpi-i2c', 'pca9685']:
+                log_error(f"Direct Raspberry Pi I2C PCA9685 failed: {e}")
+                return SimulatedServoController()
+            log_info(f"Direct Raspberry Pi I2C not active ({e}). Checking Arduino...")
+
+    # 2. Arduino USB Serial fallback
+    if driver_mode in ['auto', 'arduino']:
+        ser = connect_arduino(port, baud)
+        if ser:
+            return ArduinoSerialController(ser)
+
+    log_warning("No physical servo hardware connected. Running in SIMULATION MODE.")
+    return SimulatedServoController()
 
 class ClipClassifier:
     """Zero-Shot CLIP Classifier with pre-computed text embeddings and custom prompt support."""
@@ -137,7 +292,11 @@ class ClipClassifier:
             self.dev_desc = "NVIDIA CUDA GPU"
         else:
             self.device = "cpu"
-            self.dev_desc = "CPU (Raspberry Pi / Desktop)"
+            # Optimize PyTorch CPU threading on Raspberry Pi (utilize all 4 ARM cores)
+            num_cores = os.cpu_count() or 4
+            num_threads = min(4, num_cores)
+            torch.set_num_threads(num_threads)
+            self.dev_desc = f"CPU (Raspberry Pi / {num_cores} cores, {num_threads} threads)"
 
         log_info(f"Loading CLIP model '{model_name}' on {self.dev_desc}...")
         try:
@@ -309,10 +468,10 @@ def draw_hud(frame, last_probs, fps, hw_status, hw_color, in_cooldown, locked_te
         cv2.line(frame, (mx1 + 25, my1 + 45), (mx2 - 25, my1 + 45), (60, 60, 60), 1)
 
         shortcuts = [
-            ("[1] : Trigger PAPER", "Servo 1 Left ('P')"),
-            ("[2] : Trigger PLASTIC / METAL", "Servo 1 Right ('M')"),
-            ("[3] : Trigger ORGANIC", "Servo 2 Forward ('O')"),
-            ("[4] : Trigger GENERAL TRASH", "Servo 2 Backward ('G')"),
+            ("[1] : PAPER (Blue Bin)", "Pan 30 deg -> Tilt & Dump ('P')"),
+            ("[2] : PLASTIC (Orange Bin)", "Pan 70 deg -> Tilt & Dump ('M')"),
+            ("[3] : ORGANIC (Green Bin)", "Pan 110 deg -> Tilt & Dump ('O')"),
+            ("[4] : RESIDUAL (Red Bin)", "Pan 150 deg -> Tilt & Dump ('G')"),
             ("[C] : Recalibrate Tray", "Resets background subtraction"),
             ("[Space] : Force Instant Scan", "Evaluates current tray frame"),
             ("[H] : Close Help Menu", "Toggles this screen"),
@@ -326,15 +485,19 @@ def draw_hud(frame, last_probs, fps, hw_status, hw_color, in_cooldown, locked_te
             sy += 22
 
 def main():
-    parser = argparse.ArgumentParser(description='EcoSort Smart Bin - Zero-Shot CLIP 4-Way Waste Segregator')
+    parser = argparse.ArgumentParser(description='EcoSort Smart Bin - 2-Axis Pan-Tilt Waste Segregator (Colombo CMC)')
+    parser.add_argument('--driver', type=str, default='auto', choices=['auto', 'rpi-i2c', 'pca9685', 'arduino', 'sim'],
+                        help="Hardware servo controller: 'auto' (detects RPi I2C or Arduino), 'rpi-i2c' (direct Raspberry Pi PCA9685), 'arduino' (USB serial), or 'sim' (simulation)")
+    parser.add_argument('--pan-ch', type=int, default=0, help="PCA9685 channel for Pan servo (default: 0)")
+    parser.add_argument('--tilt-ch', type=int, default=1, help="PCA9685 channel for Tilt servo (default: 1)")
     parser.add_argument('--camera', type=int, default=0, help='Camera index (0 for built-in, 1 for external/USB)')
     parser.add_argument('--port', type=str, default='auto', help="Arduino Serial Port (e.g. 'auto', '/dev/ttyACM0', 'COM3')")
     parser.add_argument('--baud', type=int, default=9600, help='Arduino Serial Baud Rate (default: 9600)')
-    parser.add_argument('--no-arduino', action='store_true', help='Run in simulation mode without physical Arduino')
+    parser.add_argument('--no-arduino', action='store_true', help='Deprecated: run in simulation mode without physical servos')
     parser.add_argument('--headless', action='store_true', help='Run in headless mode without GUI window (ideal for Raspberry Pi SSH)')
     parser.add_argument('--threshold', type=float, default=0.60, help='Confidence threshold to trigger physical sort (default: 0.60)')
     parser.add_argument('--stable-frames', type=int, default=3, help='Consecutive identical predictions required (default: 3)')
-    parser.add_argument('--cooldown', type=float, default=2.5, help='Cooldown seconds after physical sorting action (default: 2.5)')
+    parser.add_argument('--cooldown', type=float, default=3.8, help='Cooldown seconds after physical sorting action (default: 3.8)')
     parser.add_argument('--prompts-file', type=str, default=None, help='Path to JSON file with custom category prompts')
     args = parser.parse_args()
 
@@ -358,39 +521,59 @@ def main():
     # Initialize CLIP
     classifier = ClipClassifier(custom_prompts=custom_prompts)
 
-    # Connect Arduino
-    arduino = None
-    if not args.no_arduino:
-        arduino = connect_arduino(args.port, args.baud)
-    else:
-        log_info("--no-arduino set. Running in SIMULATION MODE.")
+    # Initialize Hardware Controller (Direct RPi I2C, Arduino Serial, or Simulation)
+    driver_choice = 'sim' if args.no_arduino else args.driver
+    controller = init_hardware_controller(
+        driver_mode=driver_choice,
+        port=args.port,
+        baud=args.baud,
+        pan_ch=args.pan_ch,
+        tilt_ch=args.tilt_ch
+    )
 
-    # Initialize Camera with Auto-Fallback
+    # Initialize Camera with Auto-Fallback and V4L2 support for Raspberry Pi / Linux
     log_info(f"Opening Camera (Index {args.camera})...")
-    cap = cv2.VideoCapture(args.camera)
+    if sys.platform.startswith('linux'):
+        cap = cv2.VideoCapture(args.camera, cv2.CAP_V4L2)
+        if not cap.isOpened():
+            cap = cv2.VideoCapture(args.camera)
+    else:
+        cap = cv2.VideoCapture(args.camera)
+
     if not cap.isOpened() and args.camera != 0:
-        log_warning(f"Camera index {args.camera} not found. Falling back to built-in camera (Index 0)...")
-        cap = cv2.VideoCapture(0)
+        log_warning(f"Camera index {args.camera} not found. Falling back to default camera (Index 0)...")
+        if sys.platform.startswith('linux'):
+            cap = cv2.VideoCapture(0, cv2.CAP_V4L2)
+            if not cap.isOpened():
+                cap = cv2.VideoCapture(0)
+        else:
+            cap = cv2.VideoCapture(0)
 
     if not cap.isOpened():
         log_error("Could not open camera. Please check USB connection or camera permissions.")
-        if arduino: arduino.close()
+        controller.close()
         return
 
-    print("\n" + "="*65)
-    print(f" {C_BOLD}{C_GREEN}ECOSORT SMART BIN: ZERO-SHOT CLIP 4-WAY SORTING READY{C_RESET}")
+    # Bound resolution to 640x480 to preserve high framerate on Raspberry Pi USB bus
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+    cap.set(cv2.CAP_PROP_FPS, 30)
+
+    print("\n" + "="*68)
+    print(f" {C_BOLD}{C_GREEN}ECOSORT SMART BIN: 2-AXIS PAN-TILT 4-WAY WASTE SEGREGATION{C_RESET}")
+    print("   Aligned with Colombo Municipal Council (CMC) Solid Waste System")
     print(f"   Device Acceleration : {classifier.dev_desc}")
-    print(f"   Confidence Cutoff   : {args.threshold * 100:.0f}%")
-    print(f"   Stability Requirement: {args.stable_frames} frames")
-    print("   [1] PAPER            -> Command 'P' (Servo 1 Left)")
-    print("   [2] PLASTIC / METAL  -> Command 'M' (Servo 1 Right)")
-    print("   [3] ORGANIC          -> Command 'O' (Servo 2 Forward)")
-    print("   [4] GENERAL TRASH    -> Command 'G' (Servo 2 Backward)")
+    print(f"   Confidence Cutoff   : {args.threshold * 100:.0f}% | Cooldown: {args.cooldown}s")
+    print("   --- 4 Colombo Target Bins (Pan-Tilt 180 deg Arc) ---")
+    print("   [1] PAPER & CARDBOARD         -> BLUE BIN   (Pan 30 deg  | Cmd 'P')")
+    print("   [2] PLASTICS & POLYTHENE      -> ORANGE BIN (Pan 70 deg  | Cmd 'M')")
+    print("   [3] ORGANIC / FOOD WASTE      -> GREEN BIN  (Pan 110 deg | Cmd 'O')")
+    print("   [4] GLASS/METAL & RESIDUAL    -> RED BIN    (Pan 150 deg | Cmd 'G')")
     if not is_headless:
-        print("   Interactive Hotkeys : [1-4] Test Servos | [C] Recalibrate | [Space] Scan | [H] Help | [Q] Quit")
+        print("   Interactive Hotkeys : [1-4] Test Bins | [C] Recalibrate | [Space] Scan | [H] Help | [Q] Quit")
     else:
         print("   Headless Mode Active: Press Ctrl+C to terminate.")
-    print("="*65 + "\n")
+    print("="*68 + "\n")
 
     # State Variables
     locked_text = None
@@ -496,7 +679,7 @@ def main():
                     }
                     sel_cat = cat_map[key]
                     cfg = CATEGORY_CONFIG[sel_cat]
-                    send_servo_command(arduino, cfg['cmd'], cfg['label'])
+                    controller.trigger_sort(sel_cat, cfg)
                     log_sort_event(cfg['label'], 1.0, cfg['cmd'], f"MANUAL HOTKEY: {cfg['servo_desc']}")
                     locked_text = f"[MANUAL TRIGGER] {cfg['label'].upper()} ({cfg['servo_desc']})"
                     locked_color = cfg['color']
@@ -549,8 +732,8 @@ def main():
                         avg_conf = np.mean([p[1] for p in prediction_history]) if not force_scan else conf
                         cfg = CATEGORY_CONFIG[final_cat]
 
-                        # Send Serial Hardware Trigger
-                        send_servo_command(arduino, cfg['cmd'], cfg['label'])
+                        # Trigger Hardware Pan-Tilt Dump
+                        controller.trigger_sort(final_cat, cfg)
                         log_sort_event(cfg['label'], avg_conf, cfg['cmd'], cfg['servo_desc'])
 
                         locked_text = f"[{avg_conf*100:.0f}%] {cfg['label'].upper()} -> {cfg['servo_desc']}"
@@ -580,12 +763,8 @@ def main():
                             cv2.FONT_HERSHEY_SIMPLEX, 0.65, tray_color, 2, cv2.LINE_AA)
 
                 # Hardware status text
-                if arduino and arduino.is_open:
-                    hw_status = f"Arduino: CONNECTED ({arduino.port}) | {classifier.dev_desc}"
-                    hw_color = (0, 255, 120)
-                else:
-                    hw_status = f"Arduino: SIMULATION | {classifier.dev_desc}"
-                    hw_color = (0, 190, 255)
+                hw_status = f"{controller.status_str} | {classifier.dev_desc}"
+                hw_color = (0, 255, 120) if "SIMULATION" not in controller.status_str else (0, 190, 255)
 
                 draw_hud(frame, last_probs, fps, hw_status, hw_color, in_cooldown, locked_text, locked_color, show_help, pip_preview)
                 cv2.imshow("EcoSort Smart Bin - Zero-Shot CLIP", frame)
@@ -601,15 +780,7 @@ def main():
         if not is_headless:
             cv2.destroyAllWindows()
 
-        # Reset servos to neutral before closing
-        if arduino and arduino.is_open:
-            try:
-                arduino.write(b'0')
-                time.sleep(0.2)
-                arduino.close()
-                log_success("Servos returned to Neutral position. Serial connection closed.")
-            except Exception:
-                pass
+        controller.close()
         log_info("EcoSort shutdown complete.")
 
 if __name__ == '__main__':
