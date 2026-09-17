@@ -17,12 +17,19 @@ sudo apt-get install -y \
     python3-dev \
     libgl1 \
     libopenblas0 \
+    libopenblas0-pthread \
     libopenblas-dev \
     liblapack-dev \
     libgomp1 \
     v4l-utils \
     i2c-tools \
     python3-smbus
+
+# Register Debian's OpenBLAS directory with dynamic linker if present
+if [ -d "/usr/lib/aarch64-linux-gnu/openblas-pthread" ]; then
+    echo "/usr/lib/aarch64-linux-gnu/openblas-pthread" | sudo tee /etc/ld.so.conf.d/openblas.conf > /dev/null
+    sudo ldconfig
+fi
 
 echo "[2/6] Enabling Raspberry Pi I2C interface for PCA9685..."
 # Automatically enable hardware I2C interface (GPIO 2 & 3)
@@ -51,11 +58,20 @@ echo "Installing lightweight CPU-only PyTorch..."
 echo "Installing remaining project dependencies..."
 ./venv/bin/pip install -r requirements.txt
 
+# Configure LD_PRELOAD in venv/bin/activate for OpenBLAS if needed
+OPENBLAS_SO=$(find /usr/lib -name "libopenblas*.so.0" 2>/dev/null | grep -E "pthread|aarch64" | head -n 1)
+if [ -n "$OPENBLAS_SO" ]; then
+    if ! grep -q "LD_PRELOAD.*libopenblas" venv/bin/activate; then
+        echo "export LD_PRELOAD=$OPENBLAS_SO:\$LD_PRELOAD" >> venv/bin/activate
+    fi
+    export LD_PRELOAD="$OPENBLAS_SO:$LD_PRELOAD"
+fi
+
 echo "[6/6] Pre-caching OpenAI Zero-Shot CLIP ViT-B/32 model weights..."
 ./venv/bin/python -c "
-import os, sys, ctypes
+import os, sys, ctypes, glob
 if sys.platform.startswith('linux'):
-    for p in ['/usr/lib/aarch64-linux-gnu/libopenblas.so.0', '/usr/lib/aarch64-linux-gnu/libopenblas.so']:
+    for p in ['/usr/lib/aarch64-linux-gnu/openblas-pthread/libopenblas.so.0', '/usr/lib/aarch64-linux-gnu/libopenblas.so.0', '/usr/lib/aarch64-linux-gnu/libopenblas.so']:
         if os.path.exists(p):
             try:
                 ctypes.CDLL(p, mode=ctypes.RTLD_GLOBAL)

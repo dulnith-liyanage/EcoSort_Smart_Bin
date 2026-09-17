@@ -10,14 +10,29 @@ from PIL import Image
 
 # On Linux ARM64 (Raspberry Pi), pre-load OpenBLAS globally to resolve BLAS symbols (sbgemm_)
 if sys.platform.startswith('linux'):
-    for _lib_path in [
+    import glob
+    _candidate_paths = [
+        '/usr/lib/aarch64-linux-gnu/openblas-pthread/libopenblas.so.0',
+        '/usr/lib/aarch64-linux-gnu/openblas-openmp/libopenblas.so.0',
+        '/usr/lib/aarch64-linux-gnu/openblas-serial/libopenblas.so.0',
         '/usr/lib/aarch64-linux-gnu/libopenblas.so.0',
         '/usr/lib/aarch64-linux-gnu/libopenblas.so',
-        '/usr/lib/arm-linux-gnueabihf/libopenblas.so.0'
-    ]:
+        '/usr/lib/arm-linux-gnueabihf/openblas-pthread/libopenblas.so.0',
+        '/usr/lib/arm-linux-gnueabihf/libopenblas.so.0',
+    ]
+    _loaded = False
+    for _lib_path in _candidate_paths:
         if os.path.exists(_lib_path):
             try:
                 ctypes.CDLL(_lib_path, mode=ctypes.RTLD_GLOBAL)
+                _loaded = True
+                break
+            except Exception:
+                pass
+    if not _loaded:
+        for _glob_path in glob.glob('/usr/lib/**/*openblas*.so*', recursive=True):
+            try:
+                ctypes.CDLL(_glob_path, mode=ctypes.RTLD_GLOBAL)
                 break
             except Exception:
                 pass
