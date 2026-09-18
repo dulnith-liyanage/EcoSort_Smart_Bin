@@ -2,6 +2,7 @@
 """
 ==============================================================================
  EcoSort Smart Bin - 2-Axis Servo Pan-Tilt Controller & Calibrator
+ 2x2 Grid Layout (Pan-Tilt Mechanism Mounted in the Middle)
  Direct Raspberry Pi I2C control of PCA9685 (Channels 0 & 1)
  For 2x MG996R High-Torque Servos
 ==============================================================================
@@ -35,12 +36,45 @@ def log_warn(msg):
 def log_error(msg):
     print(f"{C_RED}[ERROR]{C_RESET} {msg}")
 
-# Colombo Municipal Council (CMC) 4-Bin Layout
+# 2x2 Grid Configuration (Center-Mounted Pan-Tilt)
+# Bins are arranged in 4 quadrants around the center:
+# - Front-Left  (Quadrant 2): Pan 135°, Tilt 35° (Forward dump)
+# - Front-Right (Quadrant 1): Pan 45°,  Tilt 35° (Forward dump)
+# - Rear-Left   (Quadrant 3): Pan 45°,  Tilt 145° (Backward dump along 45° axis)
+# - Rear-Right  (Quadrant 4): Pan 135°, Tilt 145° (Backward dump along 135° axis)
 BINS = {
-    '1': {'name': 'Paper & Cardboard', 'color': 'Blue',     'pan': 30,  'tilt': 30},
-    '2': {'name': 'Plastics & Poly',   'color': 'Orange',   'pan': 70,  'tilt': 30},
-    '3': {'name': 'Organic / Food',    'color': 'Green',    'pan': 110, 'tilt': 30},
-    '4': {'name': 'Glass & Landfill',  'color': 'Red/Black','pan': 150, 'tilt': 30}
+    '1': {
+        'name': 'Paper & Cardboard',
+        'color': 'Blue',
+        'pos': 'Front-Left',
+        'pan': 135,
+        'tilt': 35,
+        'mode': 'Forward Dump'
+    },
+    '2': {
+        'name': 'Plastics & Poly',
+        'color': 'Orange',
+        'pos': 'Front-Right',
+        'pan': 45,
+        'tilt': 35,
+        'mode': 'Forward Dump'
+    },
+    '3': {
+        'name': 'Organic / Food',
+        'color': 'Green',
+        'pos': 'Rear-Left',
+        'pan': 45,
+        'tilt': 145,
+        'mode': 'Backward Dump'
+    },
+    '4': {
+        'name': 'Glass & Landfill',
+        'color': 'Red/Black',
+        'pos': 'Rear-Right',
+        'pan': 135,
+        'tilt': 145,
+        'mode': 'Backward Dump'
+    }
 }
 
 class ServoPanTilt:
@@ -138,49 +172,62 @@ class ServoPanTilt:
         self.set_tilt(90)
         time.sleep(0.1)
         self.set_pan(90)
-        log_success("Mechanism at HOME.")
+        log_success("Mechanism at HOME (Level & Centered).")
 
     def dump_bin(self, bin_num):
-        """Simulates full sorting cycle: Pan to bin -> Tilt dump -> Vibrate -> Reset."""
+        """Executes full sorting cycle for 2x2 grid:
+        1. Pan to diagonal
+        2. Tilt forward (35°) or backward (145°)
+        3. Vibration shake
+        4. Level tray
+        5. Return Pan to center
+        """
         b = BINS.get(str(bin_num))
         if not b:
             log_error(f"Unknown bin '{bin_num}'. Choose 1-4.")
             return
 
-        print(f"\n{C_BOLD}>>> [TRIGGER SORT] {b['color'].upper()} BIN ({b['name']}){C_RESET}")
-        
-        # Step 1: Pan to bin angle while tray stays level (90°)
-        log_info(f"1. Panning to {b['pan']}°...")
+        print(f"\n{C_BOLD}>>> [TRIGGER 2x2 SORT] {b['color'].upper()} BIN ({b['name']}){C_RESET}")
+        print(f"    Target Position: {b['pos']} | {b['mode']} | Pan: {b['pan']}° | Tilt: {b['tilt']}°")
+
+        # Step 1: Pan to diagonal while tray remains level (90°)
+        log_info(f"1. Aligning Pan to {b['pan']}° along {b['pos']} diagonal...")
         self.set_pan(b['pan'])
         time.sleep(0.2)
 
-        # Step 2: Tilt tray down to 30°
-        log_info(f"2. Tilting down to {b['tilt']}° to dump waste...")
+        # Step 2: Tilt tray to dump angle
+        log_info(f"2. Tilting to {b['tilt']}° ({b['mode']}) to dump waste...")
         self.set_tilt(b['tilt'])
         time.sleep(1.0)
 
         # Step 3: Gentle vibration pulse to ensure sticky waste slides off
         log_info("3. Vibration pulse...")
         try:
-            self.kit.servo[self.tilt_ch].angle = 22
-            time.sleep(0.12)
-            self.kit.servo[self.tilt_ch].angle = 30
-            time.sleep(0.20)
+            if b['tilt'] < 90: # Forward dump
+                self.kit.servo[self.tilt_ch].angle = max(15, b['tilt'] - 10)
+                time.sleep(0.12)
+                self.kit.servo[self.tilt_ch].angle = b['tilt']
+                time.sleep(0.20)
+            else: # Backward dump
+                self.kit.servo[self.tilt_ch].angle = min(175, b['tilt'] + 10)
+                time.sleep(0.12)
+                self.kit.servo[self.tilt_ch].angle = b['tilt']
+                time.sleep(0.20)
         except Exception:
             pass
 
-        # Step 4: Tilt back to level (90°)
-        log_info("4. Raising tray back to level (90°)...")
+        # Step 4: Level tray back to 90°
+        log_info("4. Leveling tray back to 90°...")
         self.set_tilt(90)
         time.sleep(0.2)
 
-        # Step 5: Pan back to center (90°)
-        log_info("5. Returning pan to center (90°)...")
+        # Step 5: Pan back to center 90°
+        log_info("5. Returning Pan to center (90°)...")
         self.set_pan(90)
-        log_success(f"Dump sequence for {b['name']} complete!\n")
+        log_success(f"Dump sequence for {b['name']} ({b['pos']}) complete!\n")
 
-    def sweep_pan(self, min_ang=30, max_ang=150, cycles=1):
-        """Sweeps pan back and forth to inspect mechanical clearance."""
+    def sweep_pan(self, min_ang=45, max_ang=135, cycles=2):
+        """Sweeps pan along the two diagonal axes (45° <-> 135°)."""
         log_info(f"Sweeping Pan between {min_ang}° and {max_ang}° ({cycles} cycles)...")
         self.set_tilt(90)  # Ensure level
         for c in range(cycles):
@@ -189,25 +236,29 @@ class ServoPanTilt:
             self.set_pan(max_ang, step_delay=0.012)
             time.sleep(0.3)
         self.set_pan(90)
-        log_success("Pan sweep test completed.")
+        log_success("Diagonal Pan sweep completed.")
 
-    def sweep_tilt(self, min_ang=30, max_ang=90, cycles=2):
-        """Sweeps tilt between dumping slope and level."""
-        log_info(f"Sweeping Tilt between {min_ang}° and {max_ang}° ({cycles} cycles)...")
+    def sweep_tilt(self, min_ang=35, max_ang=145, cycles=2):
+        """Sweeps tilt through full range: Forward dump (35°) <-> Level (90°) <-> Backward dump (145°)."""
+        log_info(f"Sweeping Tilt between {min_ang}° (Forward) and {max_ang}° (Backward) ({cycles} cycles)...")
         for c in range(cycles):
             self.set_tilt(min_ang, step_delay=0.012)
             time.sleep(0.4)
+            self.set_tilt(90, step_delay=0.012)
+            time.sleep(0.3)
             self.set_tilt(max_ang, step_delay=0.012)
             time.sleep(0.4)
-        log_success("Tilt sweep test completed.")
+            self.set_tilt(90, step_delay=0.012)
+            time.sleep(0.3)
+        log_success("Full Tilt sweep test completed.")
 
     def run_all_bins(self):
-        """Demonstrates sorting into all 4 bins sequentially."""
-        log_info("Running complete 4-bin sorting sequence...")
+        """Demonstrates sorting into all 4 bins of the 2x2 grid sequentially."""
+        log_info("Running complete 2x2 grid sorting demonstration...")
         for num in ['1', '2', '3', '4']:
             self.dump_bin(num)
             time.sleep(0.8)
-        log_success("4-Bin demonstration complete!")
+        log_success("2x2 Grid demonstration complete!")
 
     def release(self):
         """Disables PWM signal to prevent servos from buzzing and drawing idle current."""
@@ -219,27 +270,27 @@ class ServoPanTilt:
             log_warn(f"Release failed: {e}")
 
 def print_menu(controller):
-    print(f"\n{C_BOLD}{C_MAG}========================================================{C_RESET}")
-    print(f"{C_BOLD}{C_MAG}   EcoSort Servo Bracket Controller (MG996R x 2)        {C_RESET}")
-    print(f"{C_BOLD}{C_MAG}========================================================{C_RESET}")
+    print(f"\n{C_BOLD}{C_MAG}================================================================{C_RESET}")
+    print(f"{C_BOLD}{C_MAG}   EcoSort 2x2 Grid Pan-Tilt Bracket Controller (Center Mount)  {C_RESET}")
+    print(f"{C_BOLD}{C_MAG}================================================================{C_RESET}")
     print(f" Current Status : {C_GREEN}Pan = {controller.current_pan}° | Tilt = {controller.current_tilt}°{C_RESET}")
     print(f" PCA9685 I2C    : Address 0x{controller.i2c_address:02X} | Pan: Ch{controller.pan_ch}, Tilt: Ch{controller.tilt_ch}")
-    print("--------------------------------------------------------")
-    print(f" {C_BOLD}[1]{C_RESET} Move to HOME (Pan 90°, Tilt 90°)")
+    print("----------------------------------------------------------------")
+    print(f" {C_BOLD}[1]{C_RESET} Move to HOME (Pan 90°, Tilt 90° - Flat & Level)")
     print(f" {C_BOLD}[2]{C_RESET} Set Pan Angle manually (0° - 180°)")
     print(f" {C_BOLD}[3]{C_RESET} Set Tilt Angle manually (0° - 180°)")
-    print("--------------------------------------------------------")
-    print(f" {C_BOLD}[4]{C_RESET} Test Bin 1: {C_BLUE}BLUE{C_RESET} (Paper & Cardboard - 30°)")
-    print(f" {C_BOLD}[5]{C_RESET} Test Bin 2: {C_YELLOW}ORANGE{C_RESET} (Plastics & Poly - 70°)")
-    print(f" {C_BOLD}[6]{C_RESET} Test Bin 3: {C_GREEN}GREEN{C_RESET} (Organic Waste - 110°)")
-    print(f" {C_BOLD}[7]{C_RESET} Test Bin 4: {C_RED}RED{C_RESET} (Glass & Landfill - 150°)")
-    print("--------------------------------------------------------")
-    print(f" {C_BOLD}[8]{C_RESET} Run Full 4-Bin Demo (Cycles 1 -> 4)")
-    print(f" {C_BOLD}[9]{C_RESET} Run Smooth Pan Sweep (30° <-> 150°)")
-    print(f" {C_BOLD}[t]{C_RESET} Run Tilt Dump Sweep (30° <-> 90°)")
+    print("----------------------------------------------------------------")
+    print(f" {C_BOLD}[4]{C_RESET} Test Bin 1: {C_BLUE}BLUE{C_RESET}   [FRONT-LEFT]  (Paper: Pan 135°, Tilt 35° Fwd)")
+    print(f" {C_BOLD}[5]{C_RESET} Test Bin 2: {C_YELLOW}ORANGE{C_RESET} [FRONT-RIGHT] (Plastic: Pan 45°, Tilt 35° Fwd)")
+    print(f" {C_BOLD}[6]{C_RESET} Test Bin 3: {C_GREEN}GREEN{C_RESET}  [REAR-LEFT]   (Organic: Pan 45°, Tilt 145° Rev)")
+    print(f" {C_BOLD}[7]{C_RESET} Test Bin 4: {C_RED}RED{C_RESET}    [REAR-RIGHT]  (Landfill: Pan 135°, Tilt 145° Rev)")
+    print("----------------------------------------------------------------")
+    print(f" {C_BOLD}[8]{C_RESET} Run Full 2x2 Grid Demo (Cycles 1 -> 2 -> 3 -> 4)")
+    print(f" {C_BOLD}[9]{C_RESET} Sweep Pan Diagonals (45° <-> 135°)")
+    print(f" {C_BOLD}[t]{C_RESET} Sweep Tilt Full Range (35° Forward <-> 145° Backward)")
     print(f" {C_BOLD}[r]{C_RESET} Release Servos (Stop PWM / Cool down)")
     print(f" {C_BOLD}[q]{C_RESET} Quit")
-    print("--------------------------------------------------------")
+    print("----------------------------------------------------------------")
 
 def interactive_loop(controller):
     """Runs an interactive text interface to control the servos."""
@@ -290,7 +341,7 @@ def interactive_loop(controller):
             break
 
 def main():
-    parser = argparse.ArgumentParser(description="EcoSort Smart Bin - 2-Axis Servo Bracket Controller")
+    parser = argparse.ArgumentParser(description="EcoSort Smart Bin - 2x2 Grid Pan-Tilt Controller")
     parser.add_argument("--pan-ch", type=int, default=0, help="PCA9685 Channel for Pan servo (default: 0)")
     parser.add_argument("--tilt-ch", type=int, default=1, help="PCA9685 Channel for Tilt servo (default: 1)")
     parser.add_argument("--address", type=lambda x: int(x, 0), default=0x40, help="PCA9685 I2C address (default: 0x40)")
@@ -299,9 +350,9 @@ def main():
     parser.add_argument("--home", action="store_true", help="Send both servos to Home (90, 90) and exit")
     parser.add_argument("--pan", type=int, help="Move Pan servo to specific angle (0-180)")
     parser.add_argument("--tilt", type=int, help="Move Tilt servo to specific angle (0-180)")
-    parser.add_argument("--bin", choices=['1', '2', '3', '4'], help="Test dump sequence for specific bin (1=Paper, 2=Plastic, 3=Organic, 4=Landfill)")
-    parser.add_argument("--test-bins", action="store_true", help="Run full 4-bin dump sequence and exit")
-    parser.add_argument("--sweep", action="store_true", help="Run pan sweep test and exit")
+    parser.add_argument("--bin", choices=['1', '2', '3', '4'], help="Test dump sequence for 2x2 bin (1=Paper/Front-Left, 2=Plastic/Front-Right, 3=Organic/Rear-Left, 4=Landfill/Rear-Right)")
+    parser.add_argument("--test-bins", action="store_true", help="Run full 2x2 4-bin dump sequence and exit")
+    parser.add_argument("--sweep", action="store_true", help="Run pan diagonal sweep test and exit")
     parser.add_argument("--release", action="store_true", help="Release PWM signal on both servos and exit")
 
     args = parser.parse_args()

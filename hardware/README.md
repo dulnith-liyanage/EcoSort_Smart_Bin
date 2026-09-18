@@ -1,72 +1,83 @@
-# EcoSort Smart Bin - 4-Way Waste Segregation Hardware
+# EcoSort Smart Bin - 2-Axis Pan-Tilt Hardware (2x2 Grid)
 
-This folder contains Arduino firmware for two different motor driver options to segregate waste into **4 distinct categories**:
-1. **Paper**
-2. **Plastic or Metal**
-3. **Organic**
-4. **General Trash**
+This hardware setup uses a **Raspberry Pi 5 (Direct I2C)** connected to a **PCA9685 16-Channel PWM Servo Driver** to actuate two **MG996R high-torque metal gear servos** in a **2x2 waste bin grid** layout.
 
 ---
 
-## Option A: PCA9685 16-Channel 12-bit PWM Driver (Recommended!)
+## 1. Physical 2x2 Grid Bin Layout
 
-The **PCA9685** module uses I2C communication (only 2 data wires to Arduino) and has a dedicated external power terminal to safely power high-torque servos without resetting the Arduino.
+The 4 solid waste bins are arranged in a **2x2 square grid**, with the **2-Axis Pan-Tilt mechanism mounted directly at the center**:
 
-### 1. Arduino to PCA9685 Wiring (I2C):
-| PCA9685 Pin | Arduino Uno / Nano | Arduino Mega | Note |
-| :--- | :--- | :--- | :--- |
-| **`GND`** | **`GND`** | **`GND`** | Logic Ground |
-| **`VCC`** | **`5V`** | **`5V`** | Powers the PCA9685 chip only |
-| **`SDA`** | **`A4`** (or SDA) | **Pin 20** (SDA) | I2C Data line |
-| **`SCL`** | **`A5`** (or SCL) | **Pin 21** (SCL) | I2C Clock line |
-| **`OE`** | *Unconnected* | *Unconnected* | Output Enable (pulled low internally) |
+```text
+               [ FRONT ]
+    +------------------------------+------------------------------+
+    |   BIN 1: Paper & Cardboard   |   BIN 2: Plastics & Poly     |
+    |   Color: BLUE                |   Color: ORANGE              |
+    |   Position: FRONT-LEFT       |   Position: FRONT-RIGHT      |
+    |   Pan: 135° | Tilt: 35° (Fwd)|   Pan: 45°  | Tilt: 35° (Fwd)|
+[L] +------------------------------+------------------------------+ [R]
+    |                  \        (0,0)        /                    |
+    |                   \  PAN-TILT AT CENTER/                     |
+    |                    \     (Home: 90°)  /                      |
+    +------------------------------+------------------------------+
+    |   BIN 3: Organic / Food      |   BIN 4: Glass & Landfill    |
+    |   Color: GREEN               |   Color: RED / BLACK         |
+    |   Position: REAR-LEFT        |   Position: REAR-RIGHT       |
+    |   Pan: 45°  | Tilt: 145°(Rev)|   Pan: 135° | Tilt: 145°(Rev)|
+    +------------------------------+------------------------------+
+               [ REAR ]
+```
 
-### 2. Servo Power (Green Screw Terminal):
-* **`POWER +`**: Connect external **5V to 6V** power supply (positive)
-* **`POWER -`**: Connect external power supply **GND** (negative)
-
-### 3. Servo Connections:
-Plug your servos into the 3-pin headers:
-* **Channel 0**: Servo 1 (Paper / Plastic & Metal Axis)
-* **Channel 1**: Servo 2 (Organic / General Trash Axis)
-
-Follow the board's color rows:
-* **Yellow Row (top)** = `PWM` (Signal wire: Orange/Yellow)
-* **Red Row (middle)** = `V+` (Power wire: Red)
-* **Black Row (bottom)** = `GND` (Ground wire: Brown/Black)
-
-### 4. Software Setup:
-1. In Arduino IDE, go to **Tools > Manage Libraries...**
-2. Search for **"Adafruit PWM Servo Driver"** and click **Install**.
-3. Open [`hardware/arduino_ecosort_pca9685/arduino_ecosort_pca9685.ino`](arduino_ecosort_pca9685/arduino_ecosort_pca9685.ino) and upload it to your Arduino!
-
----
-
-## Option B: L293D Motor Driver Shield
-
-If you are using the older stacking L293D shield instead:
-* Use sketch: [`hardware/arduino_ecosort_l293d/arduino_ecosort_l293d.ino`](arduino_ecosort_l293d/arduino_ecosort_l293d.ino)
-* `SERVO_1` header = Arduino Pin 10
-* `SERVO_2` header = Arduino Pin 9
+### Motion Kinematics:
+- **Pan Servo (Channel 0)**: Rotates the platform between the two diagonal axes:
+  - **Diagonal 1 (45°)**: Aligns between Front-Right and Rear-Left.
+  - **Diagonal 2 (135°)**: Aligns between Front-Left and Rear-Right.
+  - **Center / Home (90°)**: Faces straight forward.
+- **Tilt Servo (Channel 1)**: Tilts the tray along the chosen diagonal:
+  - **Level / Home (90°)**: Tray is horizontal and flat (waiting for object).
+  - **Forward Dump (35°)**: Tray dips downward to slide waste into the **Front** bin.
+  - **Backward Dump (145°)**: Tray tilts in reverse to slide waste into the **Rear** bin.
 
 ---
 
-## 4-Way Category & Serial Command Table
+## 2. Wiring Diagram: Raspberry Pi 5 to PCA9685
 
-Both Arduino sketches use the exact same serial commands from Python at **9600 baud**:
+No Arduino is needed! The PCA9685 connects directly to the Raspberry Pi hardware I2C pins.
 
-| Category | Model Prediction | Serial Cmd | Active Servo / Channel | Default Motion (Adjustable) |
-| :--- | :--- | :---: | :--- | :--- |
-| **Paper** | `paper` | **`'P'`** | Servo 1 (Channel 0 / Pin 10) | Tilts **Left** ($45^\circ$) |
-| **Plastic / Metal** | `plastic_metal` | **`'M'`** | Servo 1 (Channel 0 / Pin 10) | Tilts **Right** ($135^\circ$) |
-| **Organic** | `organic` | **`'O'`** | Servo 2 (Channel 1 / Pin 9) | Tilts **Forward** ($45^\circ$) |
-| **General Trash** | `general` | **`'G'`** | Servo 2 (Channel 1 / Pin 9) | Tilts **Backward** ($135^\circ$) |
+```text
+Raspberry Pi 5 (GPIO Header)                  PCA9685 16-Ch Servo Driver
+  Pin 1  (3.3V Power)   -------------------->  VCC  (Logic 3.3V)
+  Pin 9  (Ground)       -------------------->  GND  (Logic Ground)
+  Pin 3  (GPIO 2 / SDA) -------------------->  SDA  (I2C Data)
+  Pin 5  (GPIO 3 / SCL) -------------------->  SCL  (I2C Clock)
+
+External Power (5V - 6V, 3A DC)               PCA9685 Screw Terminal
+  Positive (+)          -------------------->  V+   (Green Screw Terminal)
+  Negative (-)          -------------------->  GND  (Green Screw Terminal)
+
+MG996R Servos                                 PCA9685 3-Pin Headers
+  Pan Servo (Base Horizontal Rotation) ----->  Channel 0
+  Tilt Servo (Tray Vertical Pitch)     ----->  Channel 1
+```
+
+> [!IMPORTANT]
+> **Servo Power**: MG996R servos draw up to 2.5A peak. Always supply external 5V-6V power to the green screw terminal. Never power the servos directly from the Raspberry Pi 5V header pin.
 
 ---
 
-## Running with the Python Vision System
+## 3. Testing & Calibrating Servos
+
+To test the 2x2 grid movements without running any vision models:
 
 ```bash
-# Run the live vision script (auto-detects Arduino port)
-python live_smart_bin.py --camera 1
+cd ~/EcoSort_Smart_Bin
+./venv/bin/python servo_control.py
 ```
+
+Options in the interactive menu:
+- `[1]` Return to HOME (Pan 90°, Tilt 90°)
+- `[4]` Test Bin 1 (Front-Left: Paper) -> Pan 135°, Tilt 35°
+- `[5]` Test Bin 2 (Front-Right: Plastics) -> Pan 45°, Tilt 35°
+- `[6]` Test Bin 3 (Rear-Left: Organic) -> Pan 45°, Tilt 145°
+- `[7]` Test Bin 4 (Rear-Right: Landfill) -> Pan 135°, Tilt 145°
+- `[8]` Run Full 4-Bin Demo (Cycles all 4 quadrants)

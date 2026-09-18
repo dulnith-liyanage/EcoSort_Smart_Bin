@@ -71,43 +71,52 @@ def log_sort_event(category, confidence, cmd, desc):
 
 # Category Definitions, Hardware Commands, and UI Colors (BGR)
 # Aligned with Colombo Municipal Council (CMC) / Sri Lanka Solid Waste Guidelines
+# 2x2 Grid Layout (Center-Mounted Pan-Tilt System)
+# Quadrant 2: Front-Left  -> Pan: 135°, Tilt: 35° (Forward dump)
+# Quadrant 1: Front-Right -> Pan: 45°,  Tilt: 35° (Forward dump)
+# Quadrant 3: Rear-Left   -> Pan: 45°,  Tilt: 145° (Backward dump along 45° axis)
+# Quadrant 4: Rear-Right  -> Pan: 135°, Tilt: 145° (Backward dump along 135° axis)
 CATEGORY_CONFIG = {
     'paper': {
-        'label': 'Paper (Blue Bin)',
+        'label': 'Paper & Cardboard (Blue Bin)',
+        'bin_pos': 'Front-Left',
         'cmd': 'P',
-        'servo_desc': 'Pan 30 deg (Left) -> Tilt & Dump',
+        'pan': 135,
+        'tilt': 35,
+        'servo_desc': 'Pan 135° -> Tilt Forward 35° (Front-Left)',
         'color': (235, 135, 40),      # Colombo CMC Blue (BGR: B=235, G=135, R=40)
         'default_prompt': "a piece of paper, cardboard box, brown corrugated cardboard, newspaper, magazine, book, or clean paper packaging"
     },
     'plastic_metal': {
-        'label': 'Plastic/Polythene (Orange Bin)',
+        'label': 'Plastics & Polythene (Orange Bin)',
+        'bin_pos': 'Front-Right',
         'cmd': 'M',
-        'servo_desc': 'Pan 70 deg (Mid-Left) -> Tilt & Dump',
+        'pan': 45,
+        'tilt': 35,
+        'servo_desc': 'Pan 45° -> Tilt Forward 35° (Front-Right)',
         'color': (30, 140, 255),     # Colombo CMC Orange (BGR: B=30, G=140, R=255)
         'default_prompt': "a plastic water bottle, clear PET bottle, plastic food container, polythene grocery bag, lunch sheet, milk packet, or plastic cup"
     },
     'organic': {
         'label': 'Organic Waste (Green Bin)',
+        'bin_pos': 'Rear-Left',
         'cmd': 'O',
-        'servo_desc': 'Pan 110 deg (Mid-Right) -> Tilt & Dump',
+        'pan': 45,
+        'tilt': 145,
+        'servo_desc': 'Pan 45° -> Tilt Backward 145° (Rear-Left)',
         'color': (60, 210, 60),      # Colombo CMC Green (BGR: B=60, G=210, R=60)
         'default_prompt': "organic food waste, cooked rice, fruit peels, banana skin, vegetable scraps, coconut shell, tea leaves, or garden leaves"
     },
     'general': {
-        'label': 'Metal/Residual (Red Bin)',
+        'label': 'Glass/Metal & Residual (Red Bin)',
+        'bin_pos': 'Rear-Right',
         'cmd': 'G',
-        'servo_desc': 'Pan 150 deg (Right) -> Tilt & Dump',
+        'pan': 135,
+        'tilt': 145,
+        'servo_desc': 'Pan 135° -> Tilt Backward 145° (Rear-Right)',
         'color': (60, 60, 230),      # Colombo CMC Red (BGR: B=60, G=60, R=230)
         'default_prompt': "aluminum soda can, metal tin can, glass bottle, multi-layer foil snack wrapper, chip bag, styrofoam, or non-recyclable residual trash"
     }
-}
-
-# Pan angles for 4 Colombo Municipal Council bins
-PAN_ANGLES = {
-    'paper': 30,         # Blue Bin (Far Left)
-    'plastic_metal': 70, # Orange Bin (Mid-Left)
-    'organic': 110,      # Green Bin (Mid-Right)
-    'general': 150       # Red Bin (Far Right)
 }
 
 class BaseServoController:
@@ -126,7 +135,7 @@ class BaseServoController:
         return "SIMULATION"
 
 class DirectPca9685Controller(BaseServoController):
-    """Direct Raspberry Pi I2C control of PCA9685 without requiring an Arduino."""
+    """Direct Raspberry Pi I2C control of PCA9685 (2x MG996R Servos in 2x2 Grid)."""
     def __init__(self, pan_channel=0, tilt_channel=1, address=0x40):
         try:
             from adafruit_servokit import ServoKit
@@ -157,38 +166,46 @@ class DirectPca9685Controller(BaseServoController):
             time.sleep(step_delay)
 
     def trigger_sort(self, cat_key, cfg):
-        target_pan = PAN_ANGLES.get(cat_key, 90)
-        log_info(f"[RPi I2C PCA9685] Panning to {target_pan} deg for {cfg['label']}...")
+        target_pan = cfg.get('pan', 90)
+        target_tilt = cfg.get('tilt', 35)
+        bin_pos = cfg.get('bin_pos', 'Unknown')
+        log_info(f"[RPi I2C PCA9685] Sorting into {cfg['label']} ({bin_pos}) | Pan: {target_pan}°, Tilt: {target_tilt}°...")
 
-        # Step 1: Pan to target bin angle while tilt remains level (90 deg)
+        # Step 1: Pan to target diagonal while tilt remains level (90 deg)
         self._smooth_move(self.pan_ch, self.current_pan, target_pan)
         self.current_pan = target_pan
-        time.sleep(0.18)
+        time.sleep(0.20)
 
-        # Step 2: Tilt downward to 30 deg to slide waste into bin
-        log_info("[RPi I2C PCA9685] Tilting downward to 30 deg...")
-        self._smooth_move(self.tilt_ch, self.current_tilt, 30)
-        self.current_tilt = 30
-        time.sleep(1.1)
+        # Step 2: Tilt downward along pan (forward 35° or backward 145°)
+        log_info(f"[RPi I2C PCA9685] Tilting tray to {target_tilt}° to drop waste into {bin_pos}...")
+        self._smooth_move(self.tilt_ch, self.current_tilt, target_tilt)
+        self.current_tilt = target_tilt
+        time.sleep(1.0)
 
-        # Step 3: Gentle vibration pulse to dislodge items
+        # Step 3: Gentle vibration pulse to dislodge sticky waste
         try:
-            self.kit.servo[self.tilt_ch].angle = 22
-            time.sleep(0.12)
-            self.kit.servo[self.tilt_ch].angle = 30
-            time.sleep(0.20)
+            if target_tilt < 90:
+                self.kit.servo[self.tilt_ch].angle = max(15, target_tilt - 10)
+                time.sleep(0.12)
+                self.kit.servo[self.tilt_ch].angle = target_tilt
+                time.sleep(0.20)
+            else:
+                self.kit.servo[self.tilt_ch].angle = min(175, target_tilt + 10)
+                time.sleep(0.12)
+                self.kit.servo[self.tilt_ch].angle = target_tilt
+                time.sleep(0.20)
         except Exception:
             pass
 
         # Step 4: Tilt back to level HOME (90 deg)
         self._smooth_move(self.tilt_ch, self.current_tilt, 90)
         self.current_tilt = 90
-        time.sleep(0.18)
+        time.sleep(0.20)
 
         # Step 5: Pan back to center HOME (90 deg)
         self._smooth_move(self.pan_ch, self.current_pan, 90)
         self.current_pan = 90
-        log_success("Pan-Tilt cycle complete. Returned to HOME.")
+        log_success(f"2x2 Sort cycle for {cfg['label']} ({bin_pos}) complete. Returned to HOME.")
 
     def reset_home(self):
         self._smooth_move(self.tilt_ch, self.current_tilt, 90)
@@ -201,114 +218,32 @@ class DirectPca9685Controller(BaseServoController):
 
     @property
     def status_str(self):
-        return "Hardware: RASPBERRY PI I2C (PCA9685)"
-
-class ArduinoSerialController(BaseServoController):
-    """Arduino over USB Serial."""
-    def __init__(self, ser):
-        self.ser = ser
-
-    def trigger_sort(self, cat_key, cfg):
-        cmd = cfg['cmd']
-        try:
-            self.ser.write(cmd.encode('utf-8'))
-            self.ser.flush()
-            log_info(f"[ARDUINO TRIGGER] Sent '{cmd}' -> {cfg['label']}")
-        except Exception as e:
-            log_error(f"Failed to send serial command: {e}")
-
-    def reset_home(self):
-        try:
-            self.ser.write(b'0')
-            time.sleep(0.2)
-        except Exception:
-            pass
-
-    def close(self):
-        self.reset_home()
-        try:
-            self.ser.close()
-            log_success("Arduino serial connection closed.")
-        except Exception:
-            pass
-
-    @property
-    def status_str(self):
-        return f"Hardware: ARDUINO ({self.ser.port})"
+        return "Hardware: RASPBERRY PI I2C (PCA9685 - 2x2 Grid)"
 
 class SimulatedServoController(BaseServoController):
     """Simulation fallback."""
     def trigger_sort(self, cat_key, cfg):
-        target_pan = PAN_ANGLES.get(cat_key, 90)
-        log_info(f"[SIMULATION TRIGGER] Pan {target_pan} deg -> Dump -> {cfg['label']}")
+        target_pan = cfg.get('pan', 90)
+        target_tilt = cfg.get('tilt', 35)
+        bin_pos = cfg.get('bin_pos', 'Unknown')
+        log_info(f"[SIMULATION TRIGGER] Pan {target_pan}° -> Tilt {target_tilt}° ({bin_pos}) -> {cfg['label']}")
 
     @property
     def status_str(self):
-        return "Hardware: SIMULATION"
+        return "Hardware: SIMULATION (2x2 Grid)"
 
-def connect_arduino(port=None, baud=9600):
-    """Auto-detect or connect to Arduino over USB Serial."""
-    try:
-        import serial
-        import serial.tools.list_ports
-    except ImportError:
-        return None
-
-    if port and port.lower() != 'auto':
-        try:
-            ser = serial.Serial(port, baud, timeout=1)
-            time.sleep(2.0)
-            log_success(f"Connected to Arduino on {port} @ {baud} baud.")
-            return ser
-        except Exception:
-            return None
-
-    ports = list(serial.tools.list_ports.comports())
-    candidate_port = None
-    for p in ports:
-        desc = (p.description or '').lower()
-        hwid = (p.hwid or '').lower()
-        pname = (p.device or '').lower()
-        if any(k in desc or k in hwid or k in pname for k in ['arduino', 'ch340', 'usb serial', 'usbmodem', 'usbserial', 'ttyacm', 'ttyusb']):
-            candidate_port = p.device
-            break
-
-    if candidate_port:
-        try:
-            ser = serial.Serial(candidate_port, baud, timeout=1)
-            time.sleep(2.0)
-            log_success(f"Auto-detected Arduino on {candidate_port} @ {baud} baud.")
-            ser.reset_input_buffer()
-            return ser
-        except Exception:
-            return None
-
-    return None
-
-def init_hardware_controller(driver_mode='auto', port='auto', baud=9600, pan_ch=0, tilt_ch=1):
-    """Initializes the appropriate hardware servo controller."""
+def init_hardware_controller(driver_mode='auto', pan_ch=0, tilt_ch=1):
+    """Initializes the Raspberry Pi I2C PCA9685 servo controller or simulation."""
     if driver_mode == 'sim':
         log_info("Running in SIMULATION MODE as requested.")
         return SimulatedServoController()
 
-    # 1. Direct Raspberry Pi I2C
-    if driver_mode in ['auto', 'rpi-i2c', 'pca9685']:
-        try:
-            if os.path.exists('/dev/i2c-1') or driver_mode in ['rpi-i2c', 'pca9685']:
-                return DirectPca9685Controller(pan_channel=pan_ch, tilt_channel=tilt_ch)
-        except Exception as e:
-            if driver_mode in ['rpi-i2c', 'pca9685']:
-                log_error(f"Direct Raspberry Pi I2C PCA9685 failed: {e}")
-                return SimulatedServoController()
-            log_info(f"Direct Raspberry Pi I2C not active ({e}). Checking Arduino...")
+    try:
+        if os.path.exists('/dev/i2c-1') or driver_mode in ['auto', 'rpi-i2c', 'pca9685']:
+            return DirectPca9685Controller(pan_channel=pan_ch, tilt_channel=tilt_ch)
+    except Exception as e:
+        log_warning(f"Direct Raspberry Pi I2C PCA9685 unavailable ({e}). Falling back to simulation.")
 
-    # 2. Arduino USB Serial fallback
-    if driver_mode in ['auto', 'arduino']:
-        ser = connect_arduino(port, baud)
-        if ser:
-            return ArduinoSerialController(ser)
-
-    log_warning("No physical servo hardware connected. Running in SIMULATION MODE.")
     return SimulatedServoController()
 
 class ClipClassifier:
@@ -499,10 +434,10 @@ def draw_hud(frame, last_probs, fps, hw_status, hw_color, in_cooldown, locked_te
         cv2.line(frame, (mx1 + 25, my1 + 45), (mx2 - 25, my1 + 45), (60, 60, 60), 1)
 
         shortcuts = [
-            ("[1] : PAPER (Blue Bin)", "Pan 30 deg -> Tilt & Dump ('P')"),
-            ("[2] : PLASTIC (Orange Bin)", "Pan 70 deg -> Tilt & Dump ('M')"),
-            ("[3] : ORGANIC (Green Bin)", "Pan 110 deg -> Tilt & Dump ('O')"),
-            ("[4] : RESIDUAL (Red Bin)", "Pan 150 deg -> Tilt & Dump ('G')"),
+            ("[1] : PAPER (Blue Bin)", "Front-Left  (Pan 135°, Tilt 35° Fwd)"),
+            ("[2] : PLASTIC (Orange Bin)", "Front-Right (Pan 45°, Tilt 35° Fwd)"),
+            ("[3] : ORGANIC (Green Bin)", "Rear-Left   (Pan 45°, Tilt 145° Rev)"),
+            ("[4] : RESIDUAL (Red Bin)", "Rear-Right  (Pan 135°, Tilt 145° Rev)"),
             ("[C] : Recalibrate Tray", "Resets background subtraction"),
             ("[Space] : Force Instant Scan", "Evaluates current tray frame"),
             ("[H] : Close Help Menu", "Toggles this screen"),
@@ -586,15 +521,12 @@ class CameraCapture:
             self.cap.release()
 
 def main():
-    parser = argparse.ArgumentParser(description='EcoSort Smart Bin - 2-Axis Pan-Tilt Waste Segregator (Colombo CMC)')
-    parser.add_argument('--driver', type=str, default='auto', choices=['auto', 'rpi-i2c', 'pca9685', 'arduino', 'sim'],
-                        help="Hardware servo controller: 'auto' (detects RPi I2C or Arduino), 'rpi-i2c' (direct Raspberry Pi PCA9685), 'arduino' (USB serial), or 'sim' (simulation)")
+    parser = argparse.ArgumentParser(description='EcoSort Smart Bin - 2-Axis Pan-Tilt Waste Segregator (2x2 Grid)')
+    parser.add_argument('--driver', type=str, default='auto', choices=['auto', 'rpi-i2c', 'pca9685', 'sim'],
+                        help="Hardware servo controller: 'auto' (Raspberry Pi PCA9685 I2C), 'rpi-i2c' (direct Raspberry Pi PCA9685), or 'sim' (simulation)")
     parser.add_argument('--pan-ch', type=int, default=0, help="PCA9685 channel for Pan servo (default: 0)")
     parser.add_argument('--tilt-ch', type=int, default=1, help="PCA9685 channel for Tilt servo (default: 1)")
-    parser.add_argument('--camera', type=int, default=0, help='Camera index (0 for built-in, 1 for external/USB)')
-    parser.add_argument('--port', type=str, default='auto', help="Arduino Serial Port (e.g. 'auto', '/dev/ttyACM0', 'COM3')")
-    parser.add_argument('--baud', type=int, default=9600, help='Arduino Serial Baud Rate (default: 9600)')
-    parser.add_argument('--no-arduino', action='store_true', help='Deprecated: run in simulation mode without physical servos')
+    parser.add_argument('--camera', type=int, default=0, help='Camera index (0 for CSI/built-in, 1 for external USB)')
     parser.add_argument('--headless', action='store_true', help='Run in headless mode without GUI window (ideal for Raspberry Pi SSH)')
     parser.add_argument('--threshold', type=float, default=0.60, help='Confidence threshold to trigger physical sort (default: 0.60)')
     parser.add_argument('--stable-frames', type=int, default=3, help='Consecutive identical predictions required (default: 3)')
@@ -622,12 +554,9 @@ def main():
     # Initialize CLIP
     classifier = ClipClassifier(custom_prompts=custom_prompts)
 
-    # Initialize Hardware Controller (Direct RPi I2C, Arduino Serial, or Simulation)
-    driver_choice = 'sim' if args.no_arduino else args.driver
+    # Initialize Hardware Controller (Direct Raspberry Pi I2C PCA9685 or Simulation)
     controller = init_hardware_controller(
-        driver_mode=driver_choice,
-        port=args.port,
-        baud=args.baud,
+        driver_mode=args.driver,
         pan_ch=args.pan_ch,
         tilt_ch=args.tilt_ch
     )
@@ -639,21 +568,21 @@ def main():
         controller.close()
         return
 
-    print("\n" + "="*68)
-    print(f" {C_BOLD}{C_GREEN}ECOSORT SMART BIN: 2-AXIS PAN-TILT 4-WAY WASTE SEGREGATION{C_RESET}")
+    print("\n" + "="*72)
+    print(f" {C_BOLD}{C_GREEN}ECOSORT SMART BIN: 2-AXIS PAN-TILT 2x2 GRID WASTE SEGREGATION{C_RESET}")
     print("   Aligned with Colombo Municipal Council (CMC) Solid Waste System")
     print(f"   Device Acceleration : {classifier.dev_desc}")
     print(f"   Confidence Cutoff   : {args.threshold * 100:.0f}% | Cooldown: {args.cooldown}s")
-    print("   --- 4 Colombo Target Bins (Pan-Tilt 180 deg Arc) ---")
-    print("   [1] PAPER & CARDBOARD         -> BLUE BIN   (Pan 30 deg  | Cmd 'P')")
-    print("   [2] PLASTICS & POLYTHENE      -> ORANGE BIN (Pan 70 deg  | Cmd 'M')")
-    print("   [3] ORGANIC / FOOD WASTE      -> GREEN BIN  (Pan 110 deg | Cmd 'O')")
-    print("   [4] GLASS/METAL & RESIDUAL    -> RED BIN    (Pan 150 deg | Cmd 'G')")
+    print("   --- 4 Target Bins in 2x2 Grid (Center-Mounted Pan-Tilt) ---")
+    print("   [1] PAPER & CARDBOARD (Blue)   -> FRONT-LEFT  (Pan: 135°, Tilt: 35° Fwd)")
+    print("   [2] PLASTICS & POLY (Orange)   -> FRONT-RIGHT (Pan: 45°,  Tilt: 35° Fwd)")
+    print("   [3] ORGANIC WASTE (Green)      -> REAR-LEFT   (Pan: 45°,  Tilt: 145° Rev)")
+    print("   [4] GLASS & RESIDUAL (Red)     -> REAR-RIGHT  (Pan: 135°, Tilt: 145° Rev)")
     if not is_headless:
         print("   Interactive Hotkeys : [1-4] Test Bins | [C] Recalibrate | [Space] Scan | [H] Help | [Q] Quit")
     else:
         print("   Headless Mode Active: Press Ctrl+C to terminate.")
-    print("="*68 + "\n")
+    print("="*72 + "\n")
 
     # State Variables
     locked_text = None
