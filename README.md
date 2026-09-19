@@ -1,91 +1,83 @@
-# EcoSort: AI-Powered Smart Waste Bin (Zero-Shot CLIP)
+# EcoSort Smart Bin - 2-Axis Pan-Tilt Hardware (2x2 Grid)
 
-EcoSort is an Edge AI computer vision and robotic sorting system designed to automate municipal waste segregation into **4 distinct bins** following the **Colombo Municipal Council (CMC) / Sri Lanka Solid Waste Guidelines**:
-1. **Paper & Cardboard (Blue Bin)**: Cardboard packaging, newspapers, textbooks, cartons, clean paper sheets.
-2. **Plastics & Polythene (Orange Bin)**: PET drink bottles, food containers, polythene grocery bags, lunch sheets, milk packets.
-3. **Organic / Biodegradable Waste (Green Bin)**: Cooked food scraps, fruit peels, vegetable waste, coconut shells, tea leaves.
-4. **Glass, Metal & Residual Landfill Trash (Red/Black Bin)**: Aluminum soda cans, tin cans, glass bottles, foil snack wrappers, non-recyclables.
-
-Powered by **OpenAI's Zero-Shot CLIP**, EcoSort classifies waste in real time and commands an **Arduino-driven 2-Axis Pan-Tilt Servo Controller** to rotate horizontally to the designated bin and dump the waste with a downward pitch.
+This hardware setup uses a **Raspberry Pi 5 (Direct I2C)** connected to a **PCA9685 16-Channel PWM Servo Driver** to actuate two **MG996R high-torque metal gear servos** in a **2x2 waste bin grid** layout.
 
 ---
 
-## Hardware Setup
-- **Computing Device:** Mac or Raspberry Pi (with webcam / Pi Camera Module)
-## Hardware Options
+## 1. Physical 2x2 Grid Bin Layout
 
-### Option A: Direct Raspberry Pi I2C (No Arduino Needed - Recommended!)
-Connect the PCA9685 driver directly to the Raspberry Pi's 40-pin GPIO header:
+The 4 solid waste bins are arranged in a **2x2 square grid**, with the **2-Axis Pan-Tilt mechanism mounted directly at the center**:
 
-| PCA9685 Pin | Raspberry Pi 40-Pin Header | Purpose |
-| :--- | :--- | :--- |
-| **VCC** | **Pin 1 (3.3V Power)** | Powers PCA9685 logic chip with 3.3V |
-| **GND** | **Pin 6 (or Pin 9 GND)** | Common Ground |
-| **SDA** | **Pin 3 (GPIO 2 / I2C1 SDA)** | I2C Data |
-| **SCL** | **Pin 5 (GPIO 3 / I2C1 SCL)** | I2C Clock |
-| **V+ (Screw Terminal)** | **External 5V–6V 3A Power Supply** | Powers the high-torque MG996R motors |
+```text
+               [ FRONT ]
+    +------------------------------+------------------------------+
+    |   BIN 1: Paper & Cardboard   |   BIN 2: Plastics & Poly     |
+    |   Color: BLUE                |   Color: ORANGE              |
+    |   Position: FRONT-LEFT       |   Position: FRONT-RIGHT      |
+    |   Pan: 135° | Tilt: 35° (Fwd)|   Pan: 45°  | Tilt: 35° (Fwd)|
+[L] +------------------------------+------------------------------+ [R]
+    |                  \        (0,0)        /                    |
+    |                   \  PAN-TILT AT CENTER/                     |
+    |                    \     (Home: 90°)  /                      |
+    +------------------------------+------------------------------+
+    |   BIN 3: Organic / Food      |   BIN 4: Glass & Landfill    |
+    |   Color: GREEN               |   Color: RED / BLACK         |
+    |   Position: REAR-LEFT        |   Position: REAR-RIGHT       |
+    |   Pan: 45°  | Tilt: 145°(Rev)|   Pan: 135° | Tilt: 145°(Rev)|
+    +------------------------------+------------------------------+
+               [ REAR ]
+```
 
-- **MG996R Pan Servo**: Plugs into **Channel 0** on PCA9685.
-- **MG996R Tilt Servo**: Plugs into **Channel 1** on PCA9685.
-
-### Option B: Arduino over USB Serial
-If using an Arduino Uno / Nano as a USB bridge, connect Arduino to PCA9685 (SDA $\rightarrow$ A4, SCL $\rightarrow$ A5) and plug the Arduino into the Pi or Mac via USB.
+### Motion Kinematics:
+- **Pan Servo (Channel 0)**: Rotates the platform between the two diagonal axes:
+  - **Diagonal 1 (45°)**: Aligns between Front-Right and Rear-Left.
+  - **Diagonal 2 (135°)**: Aligns between Front-Left and Rear-Right.
+  - **Center / Home (90°)**: Faces straight forward.
+- **Tilt Servo (Channel 1)**: Tilts the tray along the chosen diagonal:
+  - **Level / Home (90°)**: Tray is horizontal and flat (waiting for object).
+  - **Forward Dump (35°)**: Tray dips downward to slide waste into the **Front** bin.
+  - **Backward Dump (145°)**: Tray tilts in reverse to slide waste into the **Rear** bin.
 
 ---
 
-## Quickstart
+## 2. Wiring Diagram: Raspberry Pi 5 to PCA9685
 
-### 1. Automated Setup on Raspberry Pi
+No Arduino is needed! The PCA9685 connects directly to the Raspberry Pi hardware I2C pins.
+
+```text
+Raspberry Pi 5 (GPIO Header)                  PCA9685 16-Ch Servo Driver
+  Pin 1  (3.3V Power)   -------------------->  VCC  (Logic 3.3V)
+  Pin 9  (Ground)       -------------------->  GND  (Logic Ground)
+  Pin 3  (GPIO 2 / SDA) -------------------->  SDA  (I2C Data)
+  Pin 5  (GPIO 3 / SCL) -------------------->  SCL  (I2C Clock)
+
+External Power (5V - 6V, 3A DC)               PCA9685 Screw Terminal
+  Positive (+)          -------------------->  V+   (Green Screw Terminal)
+  Negative (-)          -------------------->  GND  (Green Screw Terminal)
+
+MG996R Servos                                 PCA9685 3-Pin Headers
+  Pan Servo (Base Horizontal Rotation) ----->  Channel 0
+  Tilt Servo (Tray Vertical Pitch)     ----->  Channel 1
+```
+
+> [!IMPORTANT]
+> **Servo Power**: MG996R servos draw up to 2.5A peak. Always supply external 5V-6V power to the green screw terminal. Never power the servos directly from the Raspberry Pi 5V header pin.
+
+---
+
+## 3. Testing & Calibrating Servos
+
+To test the 2x2 grid movements without running any vision models:
+
 ```bash
-bash setup_raspberry_pi.sh
+cd ~/EcoSort_Smart_Bin
+./venv/bin/python servo_control.py
 ```
 
-### 2. Run the Live Smart Bin
-```bash
-# Auto-detects Direct Raspberry Pi I2C or connected Arduino:
-python live_smart_bin.py
-
-# Explicit Direct Raspberry Pi I2C mode (SSH Headless):
-python live_smart_bin.py --driver rpi-i2c --headless --stable-frames 2
-
-# Simulation Mode (No hardware attached):
-python live_smart_bin.py --driver sim
-```
-
----
-
-## Interactive Keyboard Shortcuts (In GUI Window)
-
-| Hotkey | Action |
-| :---: | :--- |
-| **`1`** | Manually trigger **Paper (Blue Bin)** (`'P'` -> Pan 30° -> Dump) |
-| **`2`** | Manually trigger **Plastic & Polythene (Orange Bin)** (`'M'` -> Pan 70° -> Dump) |
-| **`3`** | Manually trigger **Organic Waste (Green Bin)** (`'O'` -> Pan 110° -> Dump) |
-| **`4`** | Manually trigger **Glass/Metal/Residual (Red Bin)** (`'G'` -> Pan 150° -> Dump) |
-| **`C`** or **`R`** | **Recalibrate Tray**: Resets background subtraction on demand |
-| **`Space`** | **Force Scan**: Evaluates current tray area immediately |
-| **`H`** | Toggle on-screen **Help / Cheat Sheet** overlay |
-| **`Q`** | Clean exit (resets servos to neutral position and closes serial) |
-
----
-
-## Colombo Municipal Council (CMC) 4-Bin Pan-Tilt Layout
-
-```
-         [Front Arc of 4 Bins]
-   
-   (Blue Bin)     (Orange Bin)     (Green Bin)     (Red Bin)
-    Paper           Plastic          Organic        Residual
-     30°              70°             110°            150°
-       \               |               /               /
-        \              |              /               /
-         ───────> [2-Axis Pan-Tilt] <───────
-                     (Home: 90°)
-```
-
-| Waste Category (CMC System) | Bin Color | Serial Cmd | Pan Angle | Tilt Action |
-| :--- | :---: | :---: | :---: | :--- |
-| **Paper & Cardboard** | **Blue** | `'P'` | **30° (Far Left)** | Pan 30° $\rightarrow$ Tilt down 30° $\rightarrow$ Return Home |
-| **Plastics & Polythene** | **Orange** | `'M'` | **70° (Mid-Left)** | Pan 70° $\rightarrow$ Tilt down 30° $\rightarrow$ Return Home |
-| **Organic / Food Waste** | **Green** | `'O'` | **110° (Mid-Right)** | Pan 110° $\rightarrow$ Tilt down 30° $\rightarrow$ Return Home |
-| **Glass, Metal & Residual** | **Red / Black** | `'G'` | **150° (Far Right)** | Pan 150° $\rightarrow$ Tilt down 30° $\rightarrow$ Return Home |
+Options in the interactive menu:
+- `[1]` Return to HOME (Pan 90°, Tilt 90°)
+- `[4]` Test Bin 1 (Front-Left: Paper) -> Pan 135°, Tilt 35°
+- `[5]` Test Bin 2 (Front-Right: Plastics) -> Pan 45°, Tilt 35°
+- `[6]` Test Bin 3 (Rear-Left: Organic) -> Pan 45°, Tilt 145°
+- `[7]` Test Bin 4 (Rear-Right: Landfill) -> Pan 135°, Tilt 145°
+- `[8]` Run Full 4-Bin Demo (Cycles all 4 quadrants)
