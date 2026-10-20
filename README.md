@@ -1,5 +1,12 @@
 # EcoSort Smart Bin: AI-Powered Automated Waste Segregation System
 
+The [motor assembly](hardware/motor_assembly_only/README.md) contains the centre
+mount, two servo representations, pan-tilt bracket and tray, with FreeCAD and STEP
+files plus separate printable mount/clamp STLs. Dimensions await measurements.
+The [optional low-polygon mount and mounting guide](hardware/simple_mount_v4/README.md)
+provides a 232-triangle alternative and options for mounting the Pi and camera
+together. Neither complete assembly should be printed as one object.
+
 **EcoSort** is an intelligent, edge-computed municipal waste segregation system. It combines real-time computer vision powered by **OpenAI's Zero-Shot CLIP (Contrastive Language-Image Pre-Training)** with a high-torque **2-Axis Pan-Tilt Robotic Mechanism** to automatically classify and sort solid waste into four separate bins arranged in a **2x2 grid**.
 
 The system is designed to run directly on a **Raspberry Pi 5** using hardware I2C without needing an external microcontroller, aligned with the **Colombo Municipal Council (CMC)** and national solid waste segregation standards.

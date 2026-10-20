@@ -1,0 +1,28 @@
+{
+  "motor_mount": {
+    "quantity": 1,
+    "triangles": 232,
+    "watertight": true,
+    "single_body": true,
+    "dimensions_mm": [
+      160.0,
+      160.0,
+      116.0
+    ]
+  },
+  "optional_rim_shoe": {
+    "quantity": 4,
+    "triangles": 32,
+    "watertight": true,
+    "single_body": true,
+    "dimensions_mm": [
+      28.0,
+      35.0,
+      8.0
+    ]
+  },
+  "comparison": {
+    "previous_mount_triangles": 1212,
+    "new_mount_triangles": 232
+  }
+}
