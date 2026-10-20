@@ -1,0 +1,16 @@
+{
+  "parts": [
+    "Original_motor_mount",
+    "Rim_shoe",
+    "Rim_shoe001",
+    "Rim_shoe002",
+    "Rim_shoe003",
+    "Pan_servo_MG996R_APPROXIMATE",
+    "Tilt_servo_MG996R_APPROXIMATE",
+    "RB0051_pan_carrier_APPROXIMATE",
+    "RB0051_tilting_U_bracket_APPROXIMATE",
+    "Existing_tray_APPROXIMATE"
+  ],
+  "geometry": "Original support and shoes; original simplified purchased-hardware representations.",
+  "third_party_cad_embedded": false
+}

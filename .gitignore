@@ -7,3 +7,6 @@ dataset/
 .DS_Store
 dataset_1
 dataset_2
+.local-design-archive/
+*.FCBak
+*.FCStd1
