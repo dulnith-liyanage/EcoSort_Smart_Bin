@@ -40,7 +40,6 @@ hardware/design/
   output/                   STLs, STEPs, assembly and checks
 docs/                       Assembly, Pi setup and verification guides
 tests/                      Offline regression and STL integrity checks
-experiments/mobilenet/      Separate optional TensorFlow experiment
 ```
 
 Existing root command names are retained so Pi launch commands still work.
@@ -76,5 +75,6 @@ The current four categories are paper/cardboard, plastic/polythene, organic,
 and glass/metal/residual. These are project routes, not a claim that the system
 implements every Colombo Municipal Council waste stream. No hazardous-waste
 classifier or physical hazardous-waste handling has been validated. The existing
-zero-shot CLIP model is unchanged; moving the camera requires real-image checks,
-not automatic retraining of the unrelated MobileNet experiment.
+zero-shot CLIP model is unchanged; moving the camera requires real-image checks.
+The unrelated, unused MobileNet training experiment has been archived locally
+and is also recoverable from Git history.

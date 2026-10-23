@@ -1,4 +1,0 @@
-general
-organic
-paper
-plastic_metal

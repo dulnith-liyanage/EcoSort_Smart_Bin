@@ -6,11 +6,14 @@ the completed computer checks from work that still requires your hardware.
 ## Completed on this Mac
 
 - `venv/bin/python scripts/verify.py`: Python syntax checks, shell syntax checks,
-  and **10 passing tests**. Nine tests exercise fake servos, fake/synthetic camera
+  and **11 passing tests**. Nine tests exercise fake servos, fake/synthetic camera
   data, all four routes, channel validation, explicit hardware failure, startup
   centring, level-before-pan, and a manual-sort main-loop regression. The tenth
   independently reads all nine binary STLs, checks triangle counts, confirms each
   edge is shared twice and confirms positive enclosed volume.
+- An additional saved-document regression checks that both FreeCAD assemblies
+  contain the base, pedestal, shoes, adapter and mechanism, with the expected
+  component counts. This catches older/incomplete CAD saves before publication.
 - `venv/bin/python live_smart_bin.py --help`: successful CLI import/argument
   display with the installed runtime. No model weights downloaded or inference
   performed by this check.
@@ -44,7 +47,8 @@ Run the macro again after changing parameters, then rerun the offline checks.
   automatic mode retains its documented simulation fallback.
 - Setup installs the native camera packages. The camera diagnostic reports real
   observations or unavailable tooling instead of asserting an unobserved I2C
-  error. The unused serial dependency and legacy TLS bypass were removed.
+  error. The unused serial dependency was removed, and the unrelated MobileNet
+  training experiment was archived outside the active repository.
 
 The classifier, prompts, category routing and default servo angle targets remain
 the same. No new recognition accuracy or model training result is claimed.
