@@ -1,9 +1,10 @@
 #!/bin/bash
 # ==============================================================================
 #  EcoSort Smart Bin - Raspberry Pi Automated Environment Setup Script
-#  Supports: Direct Raspberry Pi I2C (PCA9685) and USB Arduino Modes
+#  Supports: Direct Raspberry Pi I2C (PCA9685)
 # ==============================================================================
 set -e
+cd -- "$(dirname -- "${BASH_SOURCE[0]}")"
 
 echo "=========================================================="
 echo "  ECOSORT SMART BIN: RASPBERRY PI ENVIRONMENT SETUP"
@@ -23,7 +24,9 @@ sudo apt-get install -y \
     libgomp1 \
     v4l-utils \
     i2c-tools \
-    python3-smbus
+    python3-smbus \
+    python3-picamera2 \
+    rpicam-apps
 
 # Register Debian's OpenBLAS directory with dynamic linker if present
 if [ -d "/usr/lib/aarch64-linux-gnu/openblas-pthread" ]; then

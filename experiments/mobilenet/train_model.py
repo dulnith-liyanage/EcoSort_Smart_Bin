@@ -2,10 +2,6 @@ import tensorflow as tf
 from tensorflow.keras import layers, models, applications, callbacks
 import matplotlib.pyplot as plt
 import os
-import ssl
-
-# Fix for macOS SSL CERTIFICATE_VERIFY_FAILED error
-ssl._create_default_https_context = ssl._create_unverified_context
 
 DATASET_DIR = 'dataset'
 BATCH_SIZE = 32

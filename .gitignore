@@ -10,3 +10,4 @@ dataset_2
 .local-design-archive/
 *.FCBak
 *.FCStd1
+*.keras

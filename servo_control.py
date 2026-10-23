@@ -81,6 +81,8 @@ class ServoPanTilt:
     """Manages the 2-Axis MG996R Pan-Tilt mechanism via PCA9685."""
 
     def __init__(self, pan_ch=0, tilt_ch=1, i2c_address=0x40):
+        if not (0 <= pan_ch < 16 and 0 <= tilt_ch < 16) or pan_ch == tilt_ch:
+            raise ValueError('Pan and tilt must use distinct PCA9685 channels from 0 to 15.')
         self.pan_ch = pan_ch
         self.tilt_ch = tilt_ch
         self.i2c_address = i2c_address
@@ -172,6 +174,8 @@ class ServoPanTilt:
         self.set_tilt(90)
         time.sleep(0.1)
         self.set_pan(90)
+        self.kit.servo[self.tilt_ch].angle = 90
+        self.kit.servo[self.pan_ch].angle = 90
         log_success("Mechanism at HOME (Level & Centered).")
 
     def dump_bin(self, bin_num):
@@ -190,6 +194,7 @@ class ServoPanTilt:
         print(f"\n{C_BOLD}>>> [TRIGGER 2x2 SORT] {b['color'].upper()} BIN ({b['name']}){C_RESET}")
         print(f"    Target Position: {b['pos']} | {b['mode']} | Pan: {b['pan']}° | Tilt: {b['tilt']}°")
 
+        self.set_tilt(90)
         # Step 1: Pan to diagonal while tray remains level (90°)
         log_info(f"1. Aligning Pan to {b['pan']}° along {b['pos']} diagonal...")
         self.set_pan(b['pan'])

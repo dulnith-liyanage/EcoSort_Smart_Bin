@@ -1,0 +1,15 @@
+from pathlib import Path
+import FreeCAD as App, FreeCADGui as Gui
+from PySide import QtCore
+root=Path(__file__).resolve().parent
+source=root/'build.py'
+exec(compile(source.read_text(),str(source),'exec'),{'__file__':str(source),'__name__':'__main__'})
+doc=App.ActiveDocument
+view=Gui.activeDocument().activeView()
+def finish():
+    view.setCameraOrientation((0.424708,0.17592,0.339852,0.820473))
+    view.fitAll()
+    Gui.updateGui()
+    doc.save()
+    QtCore.QTimer.singleShot(1500,lambda:view.saveImage(str(root/'output/assembly.png'),1500,1200,'White'))
+QtCore.QTimer.singleShot(1500,finish)

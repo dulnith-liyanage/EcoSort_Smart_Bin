@@ -70,7 +70,7 @@ def log_sort_event(category, confidence, cmd, desc):
     print(f"\n{C_BOLD}{C_GREEN}>>> [SORT EVENT] {category.upper()} ({confidence*100:.1f}% confidence) -> Triggering '{cmd}' ({desc}){C_RESET}\n")
 
 # Category Definitions, Hardware Commands, and UI Colors (BGR)
-# Aligned with Colombo Municipal Council (CMC) / Sri Lanka Solid Waste Guidelines
+# Project routing labels; local collection acceptance must be checked separately.
 # 2x2 Grid Layout (Center-Mounted Pan-Tilt System)
 # Quadrant 2: Front-Left  -> Pan: 135°, Tilt: 35° (Forward dump)
 # Quadrant 1: Front-Right -> Pan: 45°,  Tilt: 35° (Forward dump)
@@ -137,6 +137,8 @@ class BaseServoController:
 class DirectPca9685Controller(BaseServoController):
     """Direct Raspberry Pi I2C control of PCA9685 (2x MG996R Servos in 2x2 Grid)."""
     def __init__(self, pan_channel=0, tilt_channel=1, address=0x40):
+        if not (0 <= pan_channel < 16 and 0 <= tilt_channel < 16) or pan_channel == tilt_channel:
+            raise ValueError('Pan and tilt must use distinct PCA9685 channels from 0 to 15.')
         try:
             from adafruit_servokit import ServoKit
         except ImportError:
@@ -171,6 +173,9 @@ class DirectPca9685Controller(BaseServoController):
         bin_pos = cfg.get('bin_pos', 'Unknown')
         log_info(f"[RPi I2C PCA9685] Sorting into {cfg['label']} ({bin_pos}) | Pan: {target_pan}°, Tilt: {target_tilt}°...")
 
+        # A previous interrupted/manual cycle may have left the tray tilted.
+        self._smooth_move(self.tilt_ch, self.current_tilt, 90)
+        self.current_tilt = 90
         # Step 1: Pan to target diagonal while tilt remains level (90 deg)
         self._smooth_move(self.pan_ch, self.current_pan, target_pan)
         self.current_pan = target_pan
@@ -212,6 +217,9 @@ class DirectPca9685Controller(BaseServoController):
         self.current_tilt = 90
         self._smooth_move(self.pan_ch, self.current_pan, 90)
         self.current_pan = 90
+        # The initial cached angles are not measurements. Always send HOME.
+        self.kit.servo[self.tilt_ch].angle = 90
+        self.kit.servo[self.pan_ch].angle = 90
 
     def close(self):
         self.reset_home()
@@ -242,6 +250,8 @@ def init_hardware_controller(driver_mode='auto', pan_ch=0, tilt_ch=1):
         if os.path.exists('/dev/i2c-1') or driver_mode in ['auto', 'rpi-i2c', 'pca9685']:
             return DirectPca9685Controller(pan_channel=pan_ch, tilt_channel=tilt_ch)
     except Exception as e:
+        if driver_mode != 'auto':
+            raise RuntimeError(f'Requested hardware driver failed: {e}') from e
         log_warning(f"Direct Raspberry Pi I2C PCA9685 unavailable ({e}). Falling back to simulation.")
 
     return SimulatedServoController()
@@ -462,7 +472,7 @@ class CameraCapture:
             try:
                 from picamera2 import Picamera2
                 log_info("[CAMERA] Probing Raspberry Pi CSI Camera via Picamera2...")
-                self.picam2 = Picamera2()
+                self.picam2 = Picamera2(camera_idx)
                 config = self.picam2.create_preview_configuration(
                     main={"size": (640, 480), "format": "RGB888"}
                 )
@@ -472,6 +482,9 @@ class CameraCapture:
                 log_success("[CAMERA] Raspberry Pi CSI Camera online via Picamera2 (640x480)!")
                 return
             except Exception as e:
+                if self.picam2 is not None:
+                    self.picam2.close()
+                    self.picam2 = None
                 log_info(f"[CAMERA] Picamera2 not active ({e}). Falling back to OpenCV VideoCapture...")
 
         # 2. Fallback to OpenCV (USB cameras, libcamerify wrapper, or desktop)
@@ -501,9 +514,8 @@ class CameraCapture:
     def read(self):
         if self.use_picam2 and self.picam2 is not None:
             try:
-                frame_rgb = self.picam2.capture_array()
-                frame_bgr = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR)
-                return True, frame_bgr
+                # libcamera RGB888 is B,G,R byte order, as OpenCV expects.
+                return True, self.picam2.capture_array()
             except Exception:
                 return False, None
         elif self.cap is not None:
@@ -533,6 +545,8 @@ def main():
     parser.add_argument('--cooldown', type=float, default=3.8, help='Cooldown seconds after physical sorting action (default: 3.8)')
     parser.add_argument('--prompts-file', type=str, default=None, help='Path to JSON file with custom category prompts')
     args = parser.parse_args()
+    if args.stable_frames < 1 or not 0 < args.threshold <= 1 or args.cooldown < 0:
+        parser.error('stable-frames must be positive, threshold in (0,1], cooldown nonnegative')
 
     # Auto-detect headless mode if running on Linux without an active display
     is_headless = args.headless
@@ -570,7 +584,7 @@ def main():
 
     print("\n" + "="*72)
     print(f" {C_BOLD}{C_GREEN}ECOSORT SMART BIN: 2-AXIS PAN-TILT 2x2 GRID WASTE SEGREGATION{C_RESET}")
-    print("   Aligned with Colombo Municipal Council (CMC) Solid Waste System")
+    print("   Four project waste routes; verify local collection requirements separately")
     print(f"   Device Acceleration : {classifier.dev_desc}")
     print(f"   Confidence Cutoff   : {args.threshold * 100:.0f}% | Cooldown: {args.cooldown}s")
     print("   --- 4 Target Bins in 2x2 Grid (Center-Mounted Pan-Tilt) ---")
@@ -595,7 +609,7 @@ def main():
     pip_preview = None
 
     # FPS Calculation
-    prev_time = time.time()
+    prev_time = time.monotonic()
     fps = 0.0
 
     # Background Subtraction Variables
@@ -610,7 +624,7 @@ def main():
                 log_error("Camera frame read failed. Exiting loop.")
                 break
 
-            now = time.time()
+            now = time.monotonic()
             fps = 0.9 * fps + 0.1 * (1.0 / max(0.001, now - prev_time))
             prev_time = now
             in_cooldown = (now < cooldown_until)
@@ -692,7 +706,10 @@ def main():
                     log_sort_event(cfg['label'], 1.0, cfg['cmd'], f"MANUAL HOTKEY: {cfg['servo_desc']}")
                     locked_text = f"[MANUAL TRIGGER] {cfg['label'].upper()} ({cfg['servo_desc']})"
                     locked_color = cfg['color']
-                    cooldown_until = now + args.cooldown
+                    cooldown_until = time.monotonic() + args.cooldown
+                    prediction_history = []
+                    # Discard this pre-movement frame; do not auto-sort it again.
+                    continue
 
             if not in_cooldown:
                 frame_delta = cv2.absdiff(background_frame.astype("uint8"), gray_roi)
@@ -748,7 +765,7 @@ def main():
                         locked_text = f"[{avg_conf*100:.0f}%] {cfg['label'].upper()} -> {cfg['servo_desc']}"
                         locked_color = cfg['color']
                         prediction_history = []
-                        cooldown_until = now + args.cooldown
+                        cooldown_until = time.monotonic() + args.cooldown
                 else:
                     if conf < args.threshold:
                         prediction_history = []
