@@ -24,6 +24,7 @@ project photographs. Bin, case and bracket measurements are still required.
 
 - [Step-by-step assembly, measurements and shopping list](docs/assembly.md)
 - [Pi setup, wiring, calibration and running](docs/pi_setup.md)
+- [VNC desktop access and motor-free camera preview](docs/vnc_camera.md)
 - [What was verified without the Raspberry Pi](docs/verification.md)
 - [Separate printable STLs](hardware/design/output/stl/)
 - [Complete FreeCAD assembly](hardware/design/output/complete_assembly.FCStd)
@@ -43,6 +44,7 @@ The driver stays on the rear clip with longer low-voltage wires to the Pi.
 live_smart_bin.py           Active camera/CLIP/sorting application
 servo_control.py            Physical servo calibration tool
 check_camera.py             Read-only Pi camera diagnostic
+camera_preview.py           Desktop/VNC camera viewer without motor commands
 setup_raspberry_pi.sh        Pi OS dependency and I2C setup
 fix_openblas.sh              Optional Pi-only BLAS repair utility
 requirements.txt            Active runtime dependencies

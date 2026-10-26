@@ -10,6 +10,7 @@ for folder in ['scripts','tests','hardware/design']:
     sources.extend((ROOT/folder).rglob('*.py'))
 for path in sources: ast.parse(path.read_text(),filename=str(path))
 print(f'Parsed {len(sources)} Python files.',flush=True)
-subprocess.run(['bash','-n',str(ROOT/'setup_raspberry_pi.sh'),str(ROOT/'fix_openblas.sh')],check=True)
+for path in [ROOT/'setup_raspberry_pi.sh', ROOT/'fix_openblas.sh', *sorted((ROOT/'scripts').glob('*.sh'))]:
+    subprocess.run(['bash', '-n', str(path)], check=True)
 subprocess.run([sys.executable,'-m','unittest','discover','-s','tests','-v'],cwd=ROOT,check=True)
 print('Offline checks passed. Physical Pi/recognition/fit checks remain pending.')
