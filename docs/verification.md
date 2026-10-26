@@ -18,14 +18,14 @@ PYTHONDONTWRITEBYTECODE=1 HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 ./venv/bin/pyt
 ./venv/bin/python scripts/evaluate_classifier.py --help
 ```
 
-The current Mac suite has **40 passing tests**, plus Python and shell syntax
+The current Mac suite has **43 passing tests**, plus Python and shell syntax
 checks. No camera, servo commands or model downloads are used by these checks.
 3D-print/CAD files and their dedicated geometry tests have been removed because
 the physical project no longer uses printed components.
 
 ## Earlier Pi observations
 
-Before this classifier change, real Pi checks verified Camera V2 capture,
+Earlier real Pi checks verified Camera V2 capture,
 cached CLIP inference, PCA9685 communication and operator-observed unloaded
 routes. HOME is now tilt 125 / pan 90, with provisional tilt endpoints 90/160.
 The VNC camera-only viewer displayed live frames and its window was visually
@@ -38,7 +38,7 @@ deficient power delivery. See [the diagnosis](shutdown_troubleshooting.md).
 
 ## Still required
 
-- Deploy and test the current revision on the Pi when it is reachable.
+- Confirm the chosen pretrained backend and classification behaviour on labelled local images.
 - Correct power delivery, then verify mounting, camera framing and unloaded
   clearance before loaded motor tests.
 - Collect labelled local development and held-out images. Compare raw accuracy,
@@ -48,3 +48,12 @@ deficient power delivery. See [the diagnosis](shutdown_troubleshooting.md).
 
 No improved accuracy percentage, model retraining result, load rating or
 unattended-operation readiness is claimed.
+
+## Pretrained backend update
+
+Both backend integration paths have mocked-device/model tests. The new
+four-way selection test confirms that a supported label is returned even when
+unknown has the largest score, while motor eligibility still rejects it. The
+preprocessing test verifies both edges of a wide object remain visible and BGR
+is converted to RGB correctly. CLIP remains the default until comparative
+labelled-image tests justify switching. No model is trained by this update.

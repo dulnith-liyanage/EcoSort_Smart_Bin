@@ -21,16 +21,23 @@ Normalised prompt embeddings are averaged within each class and normalised
 again. The five class embeddings are compared with each image. This replaces
 the previous single long list of unrelated objects per class.
 
+Every detected item now gets a best-match label among the four supported bins,
+even when the internal unsupported/unknown score is larger. In that case the
+interface displays **Best guess** and does not pretend the result is reliable.
+Scores are not renormalised to hide unsupported evidence. Empty-scene detection
+still controls whether there is an item to classify; this does not label every
+empty video frame as trash.
+
 A physical sort requires all of the following:
 
-- The winning class is one of the four supported bins, rather than `unknown`.
+- The selected bin beats all other classes, including the internal unknown group.
 - Its relative softmax score is at least `--threshold` (default 0.60).
 - Its lead over the second-best class, including unknown, is at least `--margin`
   (default 0.15).
 - It wins `--stable-frames` consecutive eligible classifications (default 3).
 
 A rejected prediction clears the stability history. The motors are not
-commanded for that prediction and the interface asks for manual removal.
+commanded for that prediction and the interface displays the uncertain best guess.
 Space requests a scan but cannot bypass these checks. Keys 1-4 remain explicit
 manual bin tests; they bypass recognition and can move hardware in real-driver
 mode. Automatic routing returns to level before panning and after dumping.
@@ -94,3 +101,39 @@ Custom `--prompts-file` JSON accepts current keys (`paper`, `plastic`, `metal`,
 `food`, optionally `unknown`) with a string or a list of short descriptions.
 Omitted keys retain defaults. Old keys such as `plastic_metal`, `organic` and
 `general` are rejected to prevent silently applying outdated labels.
+
+## Alternative pretrained backend without training
+
+The cached baseline remains CLIP. `--model siglip2` selects Google's official
+`google/siglip2-base-patch16-224` checkpoint, using built-in Transformers code
+and safetensors weights. This requires no local training. The first run downloads
+a separate checkpoint and processor; allow additional disk space and startup
+time. It is a comparison candidate, not a demonstrated accuracy improvement
+for these bins. Its CPU latency and power requirements on the Pi still need
+measurement after the known power issue is resolved.
+
+```sh
+./venv/bin/python live_smart_bin.py --driver sim --model siglip2 --cpu-threads 1
+```
+
+Both backends encode prompts separately and use class prompt ensembles. Images
+are padded to square before model preprocessing so the centre crop retains
+both ends of a wide/tall item. This is a preprocessing hypothesis to evaluate,
+not an accuracy guarantee. SigLIP 2 uses its prescribed max-length text padding.
+The backend's learned scale is used for relative softmax choice scores. These
+are neither calibrated accuracy probabilities nor SigLIP's native independent
+image/text sigmoid scores. Thresholds need separate validation per backend.
+
+Compare both on the same untouched images and separate output folders:
+
+```sh
+./venv/bin/python scripts/evaluate_classifier.py /path/to/holdout --model clip --output /tmp/clip-results
+./venv/bin/python scripts/evaluate_classifier.py /path/to/holdout --model siglip2 --output /tmp/siglip2-results
+```
+
+With forced four-way labels, unsupported examples cannot have a correct raw
+four-way prediction; assess their rejection in the class-by-decision table.
+Do not force sorting just to obtain a higher automatic coverage figure.
+
+References: [Google model card](https://huggingface.co/google/siglip2-base-patch16-224),
+[Transformers SigLIP 2 documentation](https://huggingface.co/docs/transformers/model_doc/siglip2).

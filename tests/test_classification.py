@@ -12,6 +12,51 @@ import live_smart_bin as live
 
 
 class ClassificationTests(unittest.TestCase):
+    def test_always_chooses_supported_bin_without_renormalising_unknown_away(self):
+        scores = {'paper': .04, 'plastic': .03, 'metal': .02, 'food': .01, 'unknown': .90}
+        self.assertEqual(live.best_supported_prediction(scores), ('paper', .04))
+        self.assertFalse(live.prediction_is_eligible('paper', scores))
+
+    def test_letterbox_keeps_both_item_edges_and_rgb_order(self):
+        frame = np.zeros((2, 6, 3), dtype=np.uint8)
+        frame[:, 0] = (0, 0, 255)
+        frame[:, -1] = (255, 0, 0)
+        actual = np.array(live.prepare_classifier_image(frame))
+        self.assertEqual(actual.shape, (6, 6, 3))
+        np.testing.assert_array_equal(actual[2, 0], (255, 0, 0))
+        np.testing.assert_array_equal(actual[2, -1], (0, 0, 255))
+
+    def test_both_pretrained_backends_use_prompt_groups_and_return_four_way_choice(self):
+        class Batch(dict):
+            def to(self, device): return self
+
+        for backend in live.MODEL_NAMES:
+            calls = []
+            def processor(**kwargs):
+                calls.append(kwargs)
+                return Batch(input_ids=torch.zeros((17, 1))) if 'text' in kwargs else Batch(pixel_values=torch.zeros((1, 3, 4, 4)))
+            model = Mock()
+            model.to.return_value = model
+            model.logit_scale = torch.tensor(4.)
+            model.get_text_features.return_value = torch.tensor([[1., 0.]]*12 + [[0., 1.]]*5)
+            model.get_image_features.return_value = torch.tensor([[.6, .8]])
+            model_class = live.AutoModel if backend == 'siglip2' else live.CLIPModel
+            processor_class = live.AutoProcessor if backend == 'siglip2' else live.CLIPProcessor
+            with self.subTest(backend=backend), \
+                 patch.object(model_class, 'from_pretrained', return_value=model) as load, \
+                 patch.object(processor_class, 'from_pretrained', return_value=processor), \
+                 patch.object(live.torch.backends.mps, 'is_available', return_value=False), \
+                 patch.object(live.torch.cuda, 'is_available', return_value=False), \
+                 patch.object(live, 'configure_cpu_threads', return_value=1), \
+                 contextlib.redirect_stdout(io.StringIO()):
+                classifier = live.ClipClassifier(model_name=live.MODEL_NAMES[backend])
+                category, score, probabilities = classifier.predict(np.zeros((4, 8, 3), dtype=np.uint8))
+            self.assertIn(category, live.CATEGORY_CONFIG)
+            self.assertGreater(probabilities['unknown'], score)
+            self.assertFalse(live.prediction_is_eligible(category, probabilities))
+            self.assertEqual(calls[0]['max_length'], 64 if backend == 'siglip2' else 77)
+            self.assertTrue(load.call_args.kwargs['use_safetensors'])
+
     def test_prompt_groups_and_invalid_old_keys(self):
         groups = live.build_prompt_groups({'paper': ['a photo of paper', 'a photo of cardboard']})
         self.assertEqual(list(groups), ['paper', 'plastic', 'metal', 'food', 'unknown'])

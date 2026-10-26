@@ -15,7 +15,8 @@ that the physical assembly can reach those routes.
 
 Camera V2 observes a stationary tray. CLIP selects among four supported classes:
 **paper/cardboard, rigid plastic containers, metal cans, and fruit/vegetable
-scraps**. Unsupported or ambiguous predictions require manual removal. The
+scraps**. Every detected item gets a best-match bin label. Unsupported or ambiguous
+guesses require manual removal instead of automatic sorting. The
 PCA9685 drives two MG996R servos in the existing metal pan/tilt kit.
 
 ## Start here
@@ -78,3 +79,6 @@ separate camera preview first. The four supported classes are project labels,
 not a claim of compliance with all municipal collection categories. CLIP has
 not been retrained, and no measured accuracy improvement is claimed without
 held-out photographs from this camera and tray. See the evaluation guide.
+
+Use `--model siglip2` to compare the alternative pretrained backend without training.
+The baseline remains CLIP until labelled local tests demonstrate a better choice.

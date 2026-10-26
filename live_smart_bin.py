@@ -39,10 +39,10 @@ if sys.platform.startswith('linux'):
                 pass
 
 import torch
-from transformers import CLIPProcessor, CLIPModel
+from transformers import CLIPProcessor, CLIPModel, AutoModel, AutoProcessor
 
 # =====================================================================
-#  EcoSort Smart Bin - Zero-Shot CLIP 4-Way Waste Sorting System
+#  EcoSort Smart Bin - Waste Classifier 4-Way Waste Sorting System
 # =====================================================================
 
 # ANSI Colors for Terminal Output
@@ -125,6 +125,30 @@ UNKNOWN_PROMPTS = [
     'a photo of a foil snack wrapper', 'a photo of an empty tray',
     'a photo of a human hand',
 ]
+
+
+MODEL_NAMES = {'clip': 'openai/clip-vit-base-patch32',
+               'siglip2': 'google/siglip2-base-patch16-224'}
+
+
+def best_supported_prediction(probabilities):
+    """Always name one of four bins, without disguising unsupported evidence."""
+    if any(key not in probabilities or not np.isfinite(probabilities[key])
+           for key in CATEGORY_CONFIG):
+        raise ValueError('Missing or invalid supported-class scores.')
+    category = max(CATEGORY_CONFIG, key=lambda key: probabilities[key])
+    return category, float(probabilities[category])
+
+
+def prepare_classifier_image(bgr):
+    """Pad to square so the model's centre crop does not cut off item edges."""
+    if bgr.ndim != 3 or bgr.shape[2] != 3 or not bgr.size:
+        raise ValueError('Expected a non-empty three-channel BGR image.')
+    image = Image.fromarray(cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB))
+    side = max(image.size)
+    square = Image.new('RGB', (side, side), color=(128, 128, 128))
+    square.paste(image, ((side-image.width)//2, (side-image.height)//2))
+    return square
 
 
 def build_prompt_groups(custom=None):
@@ -316,6 +340,10 @@ def configure_cpu_threads(requested=2):
 class ClipClassifier:
     """Zero-Shot CLIP Classifier with pre-computed text embeddings and custom prompt support."""
     def __init__(self, model_name="openai/clip-vit-base-patch32", custom_prompts=None, cpu_threads=2):
+        if model_name not in MODEL_NAMES.values():
+            raise ValueError('Use one of the supported CLIP or SigLIP 2 checkpoints.')
+        self.model_name = model_name
+        self.is_siglip = model_name == MODEL_NAMES['siglip2']
         # Select best available hardware acceleration
         if torch.backends.mps.is_available():
             self.device = "mps"
@@ -330,15 +358,17 @@ class ClipClassifier:
             num_threads = configure_cpu_threads(cpu_threads)
             self.dev_desc = f"CPU (Raspberry Pi / {num_cores} cores, {num_threads} threads)"
 
-        log_info(f"Loading CLIP model '{model_name}' on {self.dev_desc}...")
+        log_info(f"Loading vision-language model '{model_name}' on {self.dev_desc}...")
+        model_class = AutoModel if self.is_siglip else CLIPModel
+        processor_class = AutoProcessor if self.is_siglip else CLIPProcessor
         try:
             # Cache-first: loads instantly if already downloaded locally
-            self.model = CLIPModel.from_pretrained(model_name, local_files_only=True).to(self.device)
-            self.processor = CLIPProcessor.from_pretrained(model_name, local_files_only=True)
-        except Exception:
+            self.model = model_class.from_pretrained(model_name, local_files_only=True, use_safetensors=True).to(self.device)
+            self.processor = processor_class.from_pretrained(model_name, local_files_only=True)
+        except OSError:
             log_info(f"Cache miss or update needed. Downloading '{model_name}' from Hugging Face Hub...")
-            self.model = CLIPModel.from_pretrained(model_name).to(self.device)
-            self.processor = CLIPProcessor.from_pretrained(model_name)
+            self.model = model_class.from_pretrained(model_name, use_safetensors=True).to(self.device)
+            self.processor = processor_class.from_pretrained(model_name)
         self.model.eval()
 
         self.categories = list(CATEGORY_CONFIG.keys())
@@ -346,16 +376,20 @@ class ClipClassifier:
         groups = build_prompt_groups(custom_prompts)
         self.categories = list(groups)
         self.prompts = [prompt for group in groups.values() for prompt in group]
+        if self.is_siglip:
+            self.prompts = [p.replace('a photo of ', 'This is a photo of ', 1) + '.' for p in self.prompts]
 
         # Encode short descriptions separately, then average normalised features
         # within each class. Different prompt counts do not weight the bins.
-        text_inputs = self.processor(text=self.prompts, return_tensors="pt", padding=True).to(self.device)
+        text_inputs = self.processor(text=self.prompts, return_tensors="pt", truncation=True,
+                                     padding='max_length' if self.is_siglip else True,
+                                     max_length=64 if self.is_siglip else 77).to(self.device)
         with torch.no_grad():
             text_outputs = self.model.get_text_features(**text_inputs)
             text_features = self._extract_tensor(text_outputs)
             self.text_features = ensemble_text_features(text_features, [len(g) for g in groups.values()])
 
-        log_success("CLIP Classifier initialized and ready!")
+        log_success("Classifier ready: every detected item gets a best-match bin; motor checks remain separate.")
 
     @staticmethod
     def _extract_tensor(output):
@@ -371,9 +405,8 @@ class ClipClassifier:
         return output[0]
 
     def predict(self, bgr_crop):
-        """Classifies a cropped BGR image and returns top category, confidence, and full probability map."""
-        rgb_img = cv2.cvtColor(bgr_crop, cv2.COLOR_BGR2RGB)
-        pil_img = Image.fromarray(rgb_img)
+        """Return the best supported bin, its relative score and all scores, including unknown."""
+        pil_img = prepare_classifier_image(bgr_crop)
 
         image_inputs = self.processor(images=pil_img, return_tensors="pt").to(self.device)
         with torch.no_grad():
@@ -383,12 +416,13 @@ class ClipClassifier:
 
             # Cosine similarity between visual embedding and category text embeddings
             similarity = (image_features @ self.text_features.T).squeeze(0)
-            probs = (similarity * 100.0).softmax(dim=-1).cpu().numpy()
+            # Relative choice scores, not calibrated correctness probabilities
+            # or SigLIP's independent image/text sigmoid probabilities.
+            scale = self.model.logit_scale.exp().clamp(max=100)
+            probs = (similarity * scale).softmax(dim=-1).cpu().numpy()
 
-        top_idx = int(np.argmax(probs))
-        confidence = float(probs[top_idx])
-        category = self.categories[top_idx]
         probs_dict = {cat: float(p) for cat, p in zip(self.categories, probs)}
+        category, confidence = best_supported_prediction(probs_dict)
         return category, confidence, probs_dict
 
 def draw_hud(frame, last_probs, fps, hw_status, hw_color, in_cooldown, locked_text, locked_color, show_help, pip_preview=None):
@@ -414,7 +448,7 @@ def draw_hud(frame, last_probs, fps, hw_status, hw_color, in_cooldown, locked_te
     cv2.rectangle(frame, (card_x, card_y), (card_x + card_w, card_y + card_h), (70, 70, 70), 1)
 
     # Card Title
-    cv2.putText(frame, "CLIP ZERO-SHOT PROBS", (card_x + 12, card_y + 20),
+    cv2.putText(frame, "RELATIVE MATCH SCORES", (card_x + 12, card_y + 20),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.42, (210, 210, 210), 1, cv2.LINE_AA)
 
     # Render category progress bars
@@ -593,6 +627,8 @@ def main():
     parser.add_argument('--headless', action='store_true', help='Run in headless mode without GUI window (ideal for Raspberry Pi SSH)')
     parser.add_argument('--cpu-threads', type=int, choices=range(1, 5), default=2,
                         help='CPU inference threads (default: 2, leaving capacity for VNC)')
+    parser.add_argument('--model', choices=MODEL_NAMES, default='clip',
+                        help='Pretrained backend: clip (cached baseline) or siglip2 (comparison candidate)')
     parser.add_argument('--threshold', type=float, default=0.60, help='Relative score threshold to trigger physical sort (default: 0.60)')
     parser.add_argument('--margin', type=float, default=0.15, help='Minimum top-two score gap (default: 0.15; tune on validation images)')
     parser.add_argument('--stable-frames', type=int, default=3, help='Consecutive identical predictions required (default: 3)')
@@ -626,7 +662,8 @@ def main():
             parser.error(f"Invalid prompts file: {e}")
 
     # Initialize CLIP
-    classifier = ClipClassifier(custom_prompts=custom_prompts, cpu_threads=args.cpu_threads)
+    classifier = ClipClassifier(model_name=MODEL_NAMES[args.model], custom_prompts=custom_prompts,
+                                cpu_threads=args.cpu_threads)
 
     # Initialize Hardware Controller (Direct Raspberry Pi I2C PCA9685 or Simulation)
     controller = init_hardware_controller(
@@ -648,7 +685,8 @@ def main():
     print(f"   Device Acceleration : {classifier.dev_desc}")
     print(f"   Relative Score Cutoff: {args.threshold * 100:.0f}% | Cooldown: {args.cooldown}s")
     print(f"   Minimum top-two gap : {args.margin * 100:.0f}% | Stable predictions: {args.stable_frames}")
-    print("   Unknown or uncertain items: no sort; remove manually.")
+    print(f"   Pretrained model: {MODEL_NAMES[args.model]}")
+    print("   Always displays a best-match bin. Low-quality guesses do not trigger motors.")
     print("   --- 4 Target Bins in 2x2 Grid (Center-Mounted Pan-Tilt) ---")
     saved = servo_settings.load_calibration()
     print(f"   Calibrated HOME: Pan {saved.pan_home}°, Tilt {saved.tilt_home}°")
@@ -725,7 +763,7 @@ def main():
                     cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 165, 255), 2)
                     cv2.rectangle(frame, (0, h_f - 55), (w_f, h_f), (245, 245, 245), -1)
                     cv2.putText(frame, calib_msg, (20, h_f - 20), cv2.FONT_HERSHEY_SIMPLEX, 0.80, (0, 120, 255), 2)
-                    cv2.imshow("EcoSort Smart Bin - Zero-Shot CLIP", frame)
+                    cv2.imshow("EcoSort Smart Bin - Waste Classifier", frame)
                     key = cv2.waitKey(1) & 0xFF
                     if key == ord('q'):
                         break
@@ -814,7 +852,7 @@ def main():
                     print(f"\r[EVAL] Paper: {probs['paper']*100:2.0f}% | Plastic: {probs['plastic']*100:2.0f}% | Metal: {probs['metal']*100:2.0f}% | Food scraps: {probs['food']*100:2.0f}% | Top: {pred_cat} ({conf*100:.0f}%)", end='', flush=True)
 
                 if prediction_is_eligible(pred_cat, probs, args.threshold, args.margin) and locked_text is None:
-                    decision_text = 'Checking stable prediction...'
+                    decision_text = f"Best match: {CATEGORY_CONFIG[pred_cat]['label']}; checking stability..."
                     prediction_history.append((pred_cat, conf))
                     if len(prediction_history) > args.stable_frames:
                         prediction_history.pop(0)
@@ -839,8 +877,8 @@ def main():
                 else:
                     prediction_history = []
                     if locked_text is None:
-                        status_reason = 'Unsupported item' if pred_cat == 'unknown' else 'Uncertain prediction'
-                        message = f'{status_reason}: remove item manually; no sort.'
+                        label = CATEGORY_CONFIG.get(pred_cat, {}).get('label', 'Unsupported item')
+                        message = f'Best guess: {label}; low confidence, no sort.'
                         if decision_text != message:
                             log_info(message)
                         decision_text = message
@@ -872,7 +910,7 @@ def main():
                 draw_hud(frame, last_probs, fps, hw_status, hw_color, in_cooldown,
                          locked_text or decision_text, locked_color if locked_text else (0, 100, 180),
                          show_help, pip_preview)
-                cv2.imshow("EcoSort Smart Bin - Zero-Shot CLIP", frame)
+                cv2.imshow("EcoSort Smart Bin - Waste Classifier", frame)
             else:
                 # Modest sleep in headless mode to prevent high CPU utilization
                 time.sleep(0.01)
