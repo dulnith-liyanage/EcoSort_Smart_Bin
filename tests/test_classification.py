@@ -52,6 +52,7 @@ class ClassificationTests(unittest.TestCase):
                 classifier = live.ClipClassifier(model_name=live.MODEL_NAMES[backend])
                 category, score, probabilities = classifier.predict(np.zeros((4, 8, 3), dtype=np.uint8))
             self.assertIn(category, live.CATEGORY_CONFIG)
+            self.assertIsNone(classifier.model.text_model)
             self.assertGreater(probabilities['unknown'], score)
             self.assertFalse(live.prediction_is_eligible(category, probabilities))
             self.assertEqual(calls[0]['max_length'], 64 if backend == 'siglip2' else 77)

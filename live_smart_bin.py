@@ -6,6 +6,7 @@ import ctypes
 import json
 import argparse
 import time
+import gc
 from PIL import Image
 import servo_settings
 
@@ -391,6 +392,13 @@ class ClipClassifier:
             text_outputs = self.model.get_text_features(**text_inputs)
             text_features = self._extract_tensor(text_outputs)
             self.text_features = ensemble_text_features(text_features, [len(g) for g in groups.values()])
+
+        # Labels are fixed for this run. Keep their embeddings, then free the
+        # unused text encoder (especially large in SigLIP 2) for the 4 GB Pi.
+        self.model.text_model = None
+        if hasattr(self.model, 'text_projection'):
+            self.model.text_projection = None
+        gc.collect()
 
         log_success("Classifier ready: every detected item gets a best-match bin; motor checks remain separate.")
 

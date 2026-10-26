@@ -107,8 +107,11 @@ Omitted keys retain defaults. Old keys such as `plastic_metal`, `organic` and
 The cached baseline remains CLIP. `--model siglip2` selects Google's official
 `google/siglip2-base-patch16-224` checkpoint, using built-in Transformers code
 and safetensors weights. This requires no local training. The first run downloads
-a separate checkpoint and processor; allow additional disk space and startup
-time. It is a comparison candidate, not a demonstrated accuracy improvement
+a separate checkpoint and processor; its weights alone are about 1.5 GB.
+Allow additional disk space and startup time. After category embeddings are
+cached in memory, the text encoder is released to reduce steady-state RAM use.
+Initial loading still needs space for the complete model. It is a comparison
+candidate, not a demonstrated accuracy improvement
 for these bins. Its CPU latency and power requirements on the Pi still need
 measurement after the known power issue is resolved.
 

@@ -57,3 +57,12 @@ unknown has the largest score, while motor eligibility still rejects it. The
 preprocessing test verifies both edges of a wide object remain visible and BGR
 is converted to RGB correctly. CLIP remains the default until comparative
 labelled-image tests justify switching. No model is trained by this update.
+
+Real cached-weight smoke checks on this Mac also completed for both the default
+CLIP checkpoint and the official SigLIP 2 checkpoint, including image inference
+after releasing the text encoder. Synthetic blank input still received a
+supported best-match label and did not pass motor eligibility. These are
+functional checks, not accuracy measurements. SigLIP 2 weights (about 1.5 GB)
+are cached in a temporary Mac directory, not in Git or on the Pi. The installed
+Transformers version emits upstream BOS/EOS configuration warnings for SigLIP;
+the text processor and image inference checks nevertheless completed.
