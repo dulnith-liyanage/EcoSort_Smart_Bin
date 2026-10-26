@@ -13,6 +13,7 @@ import sys
 import time
 import argparse
 import signal
+import servo_settings
 
 # ANSI Terminal Colors
 C_RESET  = "\033[0m"
@@ -87,9 +88,9 @@ class ServoPanTilt:
         self.tilt_ch = tilt_ch
         self.i2c_address = i2c_address
         self.kit = None
-
-        self.current_pan = 90
-        self.current_tilt = 90
+        self.calibration = servo_settings.load_calibration()
+        self.current_pan = self.calibration.pan_home
+        self.current_tilt = self.calibration.tilt_home
 
         self._init_hardware()
 
@@ -114,9 +115,9 @@ class ServoPanTilt:
 
         try:
             log_info(f"Connecting to PCA9685 at I2C address 0x{self.i2c_address:02X}...")
-            self.kit = ServoKit(channels=16, address=self.i2c_address)
+            self.kit = servo_settings.prepare_servo_kit(ServoKit(channels=16, address=self.i2c_address))
             
-            # Calibrated pulse width range for standard MG996R (600us to 2400us)
+            # Inherited pulse range; real mechanical travel still needs checking.
             self.kit.servo[self.pan_ch].set_pulse_width_range(600, 2400)
             self.kit.servo[self.tilt_ch].set_pulse_width_range(600, 2400)
 
@@ -168,15 +169,16 @@ class ServoPanTilt:
         log_info(f"Tilt -> {self.current_tilt}°")
 
     def go_home(self):
-        """Returns both servos to safe level center (Pan 90°, Tilt 90°)."""
-        log_info("Returning mechanism to HOME (Pan 90°, Tilt 90°)...")
+        """Command saved HOME angles; physical level must be checked by the operator."""
+        pan, tilt = self.calibration.pan_home, self.calibration.tilt_home
+        log_info(f"Returning to calibrated HOME (Pan {pan}°, Tilt {tilt}°)...")
         # Level tilt first to avoid collision
-        self.set_tilt(90)
+        self.set_tilt(tilt)
         time.sleep(0.1)
-        self.set_pan(90)
-        self.kit.servo[self.tilt_ch].angle = 90
-        self.kit.servo[self.pan_ch].angle = 90
-        log_success("Mechanism at HOME (Level & Centered).")
+        self.set_pan(pan)
+        self.kit.servo[self.tilt_ch].angle = tilt
+        self.kit.servo[self.pan_ch].angle = pan
+        log_success("Saved HOME commanded; verify level on the mounting plate.")
 
     def dump_bin(self, bin_num):
         """Executes full sorting cycle for 2x2 grid:
@@ -191,75 +193,81 @@ class ServoPanTilt:
             log_error(f"Unknown bin '{bin_num}'. Choose 1-4.")
             return
 
-        print(f"\n{C_BOLD}>>> [TRIGGER 2x2 SORT] {b['color'].upper()} BIN ({b['name']}){C_RESET}")
-        print(f"    Target Position: {b['pos']} | {b['mode']} | Pan: {b['pan']}° | Tilt: {b['tilt']}°")
+        # Check the entire route, including shake, before moving either motor.
+        pan, tilt, shake = self.calibration.route(b)
 
-        self.set_tilt(90)
-        # Step 1: Pan to diagonal while tray remains level (90°)
-        log_info(f"1. Aligning Pan to {b['pan']}° along {b['pos']} diagonal...")
-        self.set_pan(b['pan'])
+        print(f"\n{C_BOLD}>>> [TRIGGER 2x2 SORT] {b['color'].upper()} BIN ({b['name']}){C_RESET}")
+        print(f"    Target Position: {b['pos']} | {b['mode']} | Calibrated Pan: {pan}° | Tilt: {tilt}°")
+
+        self.set_tilt(self.calibration.tilt_home)
+        # Step 1: Pan to diagonal with tilt at the saved level position.
+        log_info(f"1. Aligning Pan to {pan}° along {b['pos']} diagonal...")
+        self.set_pan(pan)
         time.sleep(0.2)
 
         # Step 2: Tilt tray to dump angle
-        log_info(f"2. Tilting to {b['tilt']}° ({b['mode']}) to dump waste...")
-        self.set_tilt(b['tilt'])
+        log_info(f"2. Tilting to {tilt}° ({b['mode']}) to dump waste...")
+        self.set_tilt(tilt)
         time.sleep(1.0)
 
         # Step 3: Gentle vibration pulse to ensure sticky waste slides off
         log_info("3. Vibration pulse...")
         try:
             if b['tilt'] < 90: # Forward dump
-                self.kit.servo[self.tilt_ch].angle = max(15, b['tilt'] - 10)
+                self.kit.servo[self.tilt_ch].angle = shake
                 time.sleep(0.12)
-                self.kit.servo[self.tilt_ch].angle = b['tilt']
+                self.kit.servo[self.tilt_ch].angle = tilt
                 time.sleep(0.20)
             else: # Backward dump
-                self.kit.servo[self.tilt_ch].angle = min(175, b['tilt'] + 10)
+                self.kit.servo[self.tilt_ch].angle = shake
                 time.sleep(0.12)
-                self.kit.servo[self.tilt_ch].angle = b['tilt']
+                self.kit.servo[self.tilt_ch].angle = tilt
                 time.sleep(0.20)
         except Exception:
             pass
 
-        # Step 4: Level tray back to 90°
-        log_info("4. Leveling tray back to 90°...")
-        self.set_tilt(90)
+        # Step 4: Return to calibrated level position.
+        log_info(f"4. Returning tilt to calibrated HOME {self.calibration.tilt_home}°...")
+        self.set_tilt(self.calibration.tilt_home)
         time.sleep(0.2)
 
-        # Step 5: Pan back to center 90°
-        log_info("5. Returning Pan to center (90°)...")
-        self.set_pan(90)
+        # Step 5: Return pan to calibrated centre.
+        log_info(f"5. Returning pan to calibrated HOME {self.calibration.pan_home}°...")
+        self.set_pan(self.calibration.pan_home)
         log_success(f"Dump sequence for {b['name']} ({b['pos']}) complete!\n")
 
     def sweep_pan(self, min_ang=45, max_ang=135, cycles=2):
         """Sweeps pan along the two diagonal axes (45° <-> 135°)."""
         log_info(f"Sweeping Pan between {min_ang}° and {max_ang}° ({cycles} cycles)...")
-        self.set_tilt(90)  # Ensure level
+        min_ang, max_ang = self.calibration.pan(min_ang), self.calibration.pan(max_ang)
+        self.set_tilt(self.calibration.tilt_home)
         for c in range(cycles):
             self.set_pan(min_ang, step_delay=0.012)
             time.sleep(0.3)
             self.set_pan(max_ang, step_delay=0.012)
             time.sleep(0.3)
-        self.set_pan(90)
+        self.set_pan(self.calibration.pan_home)
         log_success("Diagonal Pan sweep completed.")
 
     def sweep_tilt(self, min_ang=35, max_ang=145, cycles=2):
         """Sweeps tilt through full range: Forward dump (35°) <-> Level (90°) <-> Backward dump (145°)."""
-        log_info(f"Sweeping Tilt between {min_ang}° (Forward) and {max_ang}° (Backward) ({cycles} cycles)...")
+        min_ang, max_ang = self.calibration.tilt(min_ang), self.calibration.tilt(max_ang)
+        log_info(f"Sweeping tilt between calibrated {min_ang}° and {max_ang}°...")
         for c in range(cycles):
             self.set_tilt(min_ang, step_delay=0.012)
             time.sleep(0.4)
-            self.set_tilt(90, step_delay=0.012)
+            self.set_tilt(self.calibration.tilt_home, step_delay=0.012)
             time.sleep(0.3)
             self.set_tilt(max_ang, step_delay=0.012)
             time.sleep(0.4)
-            self.set_tilt(90, step_delay=0.012)
+            self.set_tilt(self.calibration.tilt_home, step_delay=0.012)
             time.sleep(0.3)
         log_success("Full Tilt sweep test completed.")
 
     def run_all_bins(self):
         """Demonstrates sorting into all 4 bins of the 2x2 grid sequentially."""
         log_info("Running complete 2x2 grid sorting demonstration...")
+        self.calibration.validate_routes(BINS.values())
         for num in ['1', '2', '3', '4']:
             self.dump_bin(num)
             time.sleep(0.8)
@@ -281,7 +289,8 @@ def print_menu(controller):
     print(f" Current Status : {C_GREEN}Pan = {controller.current_pan}° | Tilt = {controller.current_tilt}°{C_RESET}")
     print(f" PCA9685 I2C    : Address 0x{controller.i2c_address:02X} | Pan: Ch{controller.pan_ch}, Tilt: Ch{controller.tilt_ch}")
     print("----------------------------------------------------------------")
-    print(f" {C_BOLD}[1]{C_RESET} Move to HOME (Pan 90°, Tilt 90° - Flat & Level)")
+    print(f" {C_BOLD}[1]{C_RESET} Saved HOME (Pan {controller.calibration.pan_home}°, Tilt {controller.calibration.tilt_home}°)")
+    print(" Bin angles below are logical targets relative to HOME; unreachable routes are rejected.")
     print(f" {C_BOLD}[2]{C_RESET} Set Pan Angle manually (0° - 180°)")
     print(f" {C_BOLD}[3]{C_RESET} Set Tilt Angle manually (0° - 180°)")
     print("----------------------------------------------------------------")
@@ -352,7 +361,9 @@ def main():
     parser.add_argument("--address", type=lambda x: int(x, 0), default=0x40, help="PCA9685 I2C address (default: 0x40)")
 
     # CLI Direct Action Flags
-    parser.add_argument("--home", action="store_true", help="Send both servos to Home (90, 90) and exit")
+    parser.add_argument("--home", action="store_true", help="Send both servos to the saved calibrated HOME and exit")
+    parser.add_argument("--tilt-home", action="store_true", help="Command only the saved tilt HOME; do not command pan")
+    parser.add_argument("--check-calibration", action="store_true", help="Check saved HOME and route range without accessing hardware")
     parser.add_argument("--pan", type=int, help="Move Pan servo to specific angle (0-180)")
     parser.add_argument("--tilt", type=int, help="Move Tilt servo to specific angle (0-180)")
     parser.add_argument("--bin", choices=['1', '2', '3', '4'], help="Test dump sequence for 2x2 bin (1=Paper/Front-Left, 2=Plastic/Front-Right, 3=Organic/Rear-Left, 4=Landfill/Rear-Right)")
@@ -361,6 +372,17 @@ def main():
     parser.add_argument("--release", action="store_true", help="Release PWM signal on both servos and exit")
 
     args = parser.parse_args()
+
+    if args.check_calibration:
+        saved = servo_settings.load_calibration()
+        print(f'Saved HOME: pan={saved.pan_home}°, tilt={saved.tilt_home}°')
+        try:
+            saved.validate_routes(BINS.values())
+        except ValueError as error:
+            print(f'SORTING BLOCKED: {error}')
+            raise SystemExit(2) from error
+        print('All configured targets and shake fit 0..180; physical clearance remains unverified.')
+        return
 
     controller = ServoPanTilt(pan_ch=args.pan_ch, tilt_ch=args.tilt_ch, i2c_address=args.address)
 
@@ -381,6 +403,10 @@ def main():
 
     if args.home:
         controller.go_home()
+        executed_cli = True
+
+    if args.tilt_home:
+        controller.set_tilt(controller.calibration.tilt_home, smooth=False)
         executed_cli = True
 
     if args.pan is not None:

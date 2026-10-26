@@ -1,5 +1,17 @@
 # EcoSort Smart Bin
 
+## Current physical calibration
+
+The operator confirmed the unloaded mounting plate is level at **tilt command
+15°** on 26 October 2026. `servo_calibration.json` stores this HOME (pan 90°).
+Both control programs use it rather than assuming 90° is horizontal.
+**Automatic sorting is deliberately blocked:** shifting the original forward
+dump to this baseline would require -40°, outside the servo command range.
+Re-index the tilt horn so level is near mid-travel before four-bin operation.
+See [HOME calibration and mechanical correction](docs/home_calibration.md).
+`--driver sim` remains available for camera/software checks; it does not prove
+that the physical assembly can reach those routes.
+
 Camera V2 observes a stationary tray. The existing CLIP classifier selects one
 of four routes, and a PCA9685 drives two MG996R servos in the RB0051 pan/tilt kit.
 The assembly is a **fit-test prototype** for the four rounded baskets in the

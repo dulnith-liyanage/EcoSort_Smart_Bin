@@ -8,6 +8,7 @@ from unittest.mock import patch
 import numpy as np
 import live_smart_bin as live
 import servo_control as calibration
+import servo_settings
 
 class Servo:
     def __init__(self, channel, events): self.channel, self.events = channel, events
@@ -26,6 +27,70 @@ class RuntimeTests(unittest.TestCase):
         stack.enter_context(patch.dict(sys.modules, {'adafruit_servokit': SimpleNamespace(ServoKit=lambda **kw: kit)}))
         stack.enter_context(patch('time.sleep'))
         stack.enter_context(contextlib.redirect_stdout(io.StringIO()))
+        stack.enter_context(patch.object(servo_settings, 'load_calibration',
+                                       return_value=servo_settings.Calibration()))
+
+    def test_saved_tilt_home_is_used_by_manual_controller(self):
+        with patch.object(servo_settings, 'load_calibration',
+                          return_value=servo_settings.Calibration(90, 15)), \
+             patch.object(sys, 'platform', 'darwin'):
+            c = calibration.ServoPanTilt()
+        c.go_home()
+        self.assertEqual(self.events[-2:], [(1, 15), (0, 90)])
+
+    def test_unreachable_sorting_is_rejected_before_any_output(self):
+        with patch.object(servo_settings, 'load_calibration',
+                          return_value=servo_settings.Calibration(90, 15)):
+            with self.assertRaisesRegex(ValueError, 'Re-index'):
+                live.DirectPca9685Controller()
+            with self.assertRaises(ValueError):
+                live.init_hardware_controller('auto')
+        self.assertEqual(self.events, [])
+
+    def test_missing_calibration_does_not_fall_back_to_simulation(self):
+        with patch.object(servo_settings, 'load_calibration', side_effect=FileNotFoundError('missing calibration')):
+            with self.assertRaises(FileNotFoundError):
+                live.init_hardware_controller('auto')
+            self.assertIsInstance(live.init_hardware_controller('sim'), live.SimulatedServoController)
+
+    def test_read_only_calibration_check_does_not_initialise_hardware(self):
+        with patch.object(servo_settings, 'load_calibration', return_value=servo_settings.Calibration(90, 15)), \
+             patch.object(sys, 'argv', ['servo_control.py', '--check-calibration']), \
+             patch.object(calibration.ServoPanTilt, '_init_hardware') as hardware:
+            with self.assertRaises(SystemExit) as result:
+                calibration.main()
+        self.assertEqual(result.exception.code, 2)
+        hardware.assert_not_called()
+
+    def test_sorter_refuses_invalid_calibration_before_loading_model(self):
+        with patch.object(servo_settings, 'load_calibration', return_value=servo_settings.Calibration(90, 15)), \
+             patch.object(sys, 'argv', ['live_smart_bin.py', '--driver', 'rpi-i2c']), \
+             patch.object(live, 'ClipClassifier') as model, \
+             contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit) as result:
+                live.main()
+        self.assertEqual(result.exception.code, 2)
+        model.assert_not_called()
+
+    def test_manual_dump_rejects_unreachable_target_without_moving(self):
+        with patch.object(sys, 'platform', 'darwin'):
+            c = calibration.ServoPanTilt()
+        c.calibration = servo_settings.Calibration(90, 15)
+        self.events.clear()
+        with self.assertRaises(ValueError):
+            c.dump_bin('1')
+        self.assertEqual(self.events, [])
+
+    def test_shifted_home_changes_route_shake_and_return_consistently(self):
+        with patch.object(servo_settings, 'load_calibration',
+                          return_value=servo_settings.Calibration(95, 85)):
+            c = live.DirectPca9685Controller()
+        self.events.clear()
+        c.trigger_sort('paper', live.CATEGORY_CONFIG['paper'])
+        self.assertIn((0, 140), self.events)
+        self.assertIn((1, 30), self.events)
+        self.assertIn((1, 20), self.events)
+        self.assertEqual((c.current_pan, c.current_tilt), (95, 85))
 
     def test_startup_emits_home(self):
         live.DirectPca9685Controller()

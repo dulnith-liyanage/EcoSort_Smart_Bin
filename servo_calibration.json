@@ -1,0 +1,5 @@
+{
+  "pan_home": 90,
+  "tilt_home": 15,
+  "note": "User reports the current tilt horn is level at 15 degrees. Full bidirectional sorting is blocked until the horn is mechanically re-indexed and HOME is rechecked. Angles are PWM commands, not measured orientation."
+}

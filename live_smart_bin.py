@@ -7,6 +7,7 @@ import json
 import argparse
 import time
 from PIL import Image
+import servo_settings
 
 # On Linux ARM64 (Raspberry Pi), pre-load OpenBLAS globally to resolve BLAS symbols (sbgemm_)
 if sys.platform.startswith('linux'):
@@ -139,12 +140,15 @@ class DirectPca9685Controller(BaseServoController):
     def __init__(self, pan_channel=0, tilt_channel=1, address=0x40):
         if not (0 <= pan_channel < 16 and 0 <= tilt_channel < 16) or pan_channel == tilt_channel:
             raise ValueError('Pan and tilt must use distinct PCA9685 channels from 0 to 15.')
+        self.calibration = servo_settings.load_calibration()
+        # Reject unreachable routes BEFORE initialising hardware or emitting HOME.
+        self.calibration.validate_routes(CATEGORY_CONFIG.values())
         try:
             from adafruit_servokit import ServoKit
         except ImportError:
             raise RuntimeError("Missing 'adafruit-circuitpython-servokit'. Install it via: pip install adafruit-circuitpython-servokit")
 
-        self.kit = ServoKit(channels=16, address=address)
+        self.kit = servo_settings.prepare_servo_kit(ServoKit(channels=16, address=address))
         self.pan_ch = pan_channel
         self.tilt_ch = tilt_channel
 
@@ -152,8 +156,8 @@ class DirectPca9685Controller(BaseServoController):
         self.kit.servo[self.pan_ch].set_pulse_width_range(600, 2400)
         self.kit.servo[self.tilt_ch].set_pulse_width_range(600, 2400)
 
-        self.current_pan = 90
-        self.current_tilt = 90
+        self.current_pan = self.calibration.pan_home
+        self.current_tilt = self.calibration.tilt_home
         self.reset_home()
         log_success(f"Direct Raspberry Pi I2C PCA9685 Connected (Pan: Ch{pan_channel}, Tilt: Ch{tilt_channel})")
 
@@ -168,15 +172,14 @@ class DirectPca9685Controller(BaseServoController):
             time.sleep(step_delay)
 
     def trigger_sort(self, cat_key, cfg):
-        target_pan = cfg.get('pan', 90)
-        target_tilt = cfg.get('tilt', 35)
+        target_pan, target_tilt, shake_tilt = self.calibration.route(cfg)
         bin_pos = cfg.get('bin_pos', 'Unknown')
         log_info(f"[RPi I2C PCA9685] Sorting into {cfg['label']} ({bin_pos}) | Pan: {target_pan}°, Tilt: {target_tilt}°...")
 
         # A previous interrupted/manual cycle may have left the tray tilted.
-        self._smooth_move(self.tilt_ch, self.current_tilt, 90)
-        self.current_tilt = 90
-        # Step 1: Pan to target diagonal while tilt remains level (90 deg)
+        self._smooth_move(self.tilt_ch, self.current_tilt, self.calibration.tilt_home)
+        self.current_tilt = self.calibration.tilt_home
+        # Step 1: Pan with tilt at the calibrated level position.
         self._smooth_move(self.pan_ch, self.current_pan, target_pan)
         self.current_pan = target_pan
         time.sleep(0.20)
@@ -189,37 +192,37 @@ class DirectPca9685Controller(BaseServoController):
 
         # Step 3: Gentle vibration pulse to dislodge sticky waste
         try:
-            if target_tilt < 90:
-                self.kit.servo[self.tilt_ch].angle = max(15, target_tilt - 10)
+            if cfg['tilt'] < 90:
+                self.kit.servo[self.tilt_ch].angle = shake_tilt
                 time.sleep(0.12)
                 self.kit.servo[self.tilt_ch].angle = target_tilt
                 time.sleep(0.20)
             else:
-                self.kit.servo[self.tilt_ch].angle = min(175, target_tilt + 10)
+                self.kit.servo[self.tilt_ch].angle = shake_tilt
                 time.sleep(0.12)
                 self.kit.servo[self.tilt_ch].angle = target_tilt
                 time.sleep(0.20)
         except Exception:
             pass
 
-        # Step 4: Tilt back to level HOME (90 deg)
-        self._smooth_move(self.tilt_ch, self.current_tilt, 90)
-        self.current_tilt = 90
+        # Step 4: Return tilt to the calibrated HOME.
+        self._smooth_move(self.tilt_ch, self.current_tilt, self.calibration.tilt_home)
+        self.current_tilt = self.calibration.tilt_home
         time.sleep(0.20)
 
-        # Step 5: Pan back to center HOME (90 deg)
-        self._smooth_move(self.pan_ch, self.current_pan, 90)
-        self.current_pan = 90
+        # Step 5: Return pan to the calibrated HOME.
+        self._smooth_move(self.pan_ch, self.current_pan, self.calibration.pan_home)
+        self.current_pan = self.calibration.pan_home
         log_success(f"2x2 Sort cycle for {cfg['label']} ({bin_pos}) complete. Returned to HOME.")
 
     def reset_home(self):
-        self._smooth_move(self.tilt_ch, self.current_tilt, 90)
-        self.current_tilt = 90
-        self._smooth_move(self.pan_ch, self.current_pan, 90)
-        self.current_pan = 90
+        self._smooth_move(self.tilt_ch, self.current_tilt, self.calibration.tilt_home)
+        self.current_tilt = self.calibration.tilt_home
+        self._smooth_move(self.pan_ch, self.current_pan, self.calibration.pan_home)
+        self.current_pan = self.calibration.pan_home
         # The initial cached angles are not measurements. Always send HOME.
-        self.kit.servo[self.tilt_ch].angle = 90
-        self.kit.servo[self.pan_ch].angle = 90
+        self.kit.servo[self.tilt_ch].angle = self.calibration.tilt_home
+        self.kit.servo[self.pan_ch].angle = self.calibration.pan_home
 
     def close(self):
         self.reset_home()
@@ -246,9 +249,18 @@ def init_hardware_controller(driver_mode='auto', pan_ch=0, tilt_ch=1):
         log_info("Running in SIMULATION MODE as requested.")
         return SimulatedServoController()
 
+    # Configuration failures (including missing files/keys) are not missing
+    # hardware and must not silently fall back to simulation.
+    saved = servo_settings.load_calibration()
+    saved.validate_routes(CATEGORY_CONFIG.values())
+
     try:
         if os.path.exists('/dev/i2c-1') or driver_mode in ['auto', 'rpi-i2c', 'pca9685']:
             return DirectPca9685Controller(pan_channel=pan_ch, tilt_channel=tilt_ch)
+    except ValueError:
+        # A mechanically unreachable calibration must never masquerade as a
+        # successful simulation fallback in automatic mode.
+        raise
     except Exception as e:
         if driver_mode != 'auto':
             raise RuntimeError(f'Requested hardware driver failed: {e}') from e
@@ -547,6 +559,11 @@ def main():
     args = parser.parse_args()
     if args.stable_frames < 1 or not 0 < args.threshold <= 1 or args.cooldown < 0:
         parser.error('stable-frames must be positive, threshold in (0,1], cooldown nonnegative')
+    if args.driver != 'sim':
+        try:
+            servo_settings.load_calibration().validate_routes(CATEGORY_CONFIG.values())
+        except (OSError, ValueError, KeyError) as error:
+            parser.error(f'Sorting calibration is not usable: {error}')
 
     # Auto-detect headless mode if running on Linux without an active display
     is_headless = args.headless
