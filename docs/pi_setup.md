@@ -93,15 +93,16 @@ unit test mode.
 Keep the tray empty for its first 30 frames. Centre it in the scanning square;
 press **C** to recalibrate the empty view after moving the camera or tray. Place
 one small item, withdraw hands, and wait. Keys **1–4** manually sort; **Space**
-forces a scan and bypasses confidence/stability checks, so use it only as a
-supervised diagnostic. **Q** exits. Default confidence is 0.60, stable predictions
+requests a scan but retains score, margin and stability checks. **Q** exits. Default relative-score threshold is 0.60, top-two margin 0.15, stable predictions
 3 and cooldown 3.8 seconds after completed movement. A probability is a relative
 score among these four prompts, not a calibrated accuracy or hazard detector.
 
-Test an empty tray, representative paper/plastic/food/residual items, changing
+Test an empty tray, representative paper/plastic/metal/fruit-and-vegetable items, changing
 light and false positives before enabling unattended operation. These checks
 cannot be substituted by CAD validity or synthetic camera tests.
 
 The RGB888 Picamera2 stream is already BGR byte order for OpenCV. The application
 now leaves it in that order, then converts once to RGB for CLIP. Source:
 [Raspberry Pi Picamera2 format mapping](https://github.com/raspberrypi/picamera2/blob/main/picamera2/request.py).
+
+Current bin classes and labelled-image evaluation are in [classification.md](classification.md).

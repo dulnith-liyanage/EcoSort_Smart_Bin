@@ -53,7 +53,7 @@ BINS = {
         'mode': 'Forward Dump'
     },
     '2': {
-        'name': 'Plastics & Poly',
+        'name': 'Rigid Plastic',
         'color': 'Orange',
         'pos': 'Front-Right',
         'pan': 45,
@@ -61,7 +61,7 @@ BINS = {
         'mode': 'Forward Dump'
     },
     '3': {
-        'name': 'Organic / Food',
+        'name': 'Metal Cans',
         'color': 'Green',
         'pos': 'Rear-Left',
         'pan': 45,
@@ -69,7 +69,7 @@ BINS = {
         'mode': 'Backward Dump'
     },
     '4': {
-        'name': 'Glass & Landfill',
+        'name': 'Fruit & Vegetable Scraps',
         'color': 'Red/Black',
         'pos': 'Rear-Right',
         'pan': 135,
@@ -289,8 +289,8 @@ def print_menu(controller):
     print("----------------------------------------------------------------")
     print(f" {C_BOLD}[4]{C_RESET} Test Bin 1: {C_BLUE}BLUE{C_RESET}   [FRONT-LEFT]  (Paper: Pan 135°, Tilt 35° Fwd)")
     print(f" {C_BOLD}[5]{C_RESET} Test Bin 2: {C_YELLOW}ORANGE{C_RESET} [FRONT-RIGHT] (Plastic: Pan 45°, Tilt 35° Fwd)")
-    print(f" {C_BOLD}[6]{C_RESET} Test Bin 3: {C_GREEN}GREEN{C_RESET}  [REAR-LEFT]   (Organic: Pan 45°, Tilt 145° Rev)")
-    print(f" {C_BOLD}[7]{C_RESET} Test Bin 4: {C_RED}RED{C_RESET}    [REAR-RIGHT]  (Landfill: Pan 135°, Tilt 145° Rev)")
+    print(f" {C_BOLD}[6]{C_RESET} Test Bin 3: {C_GREEN}GREEN{C_RESET}  [REAR-LEFT]   (Metal cans: Pan 45°, Tilt 145° Rev)")
+    print(f" {C_BOLD}[7]{C_RESET} Test Bin 4: {C_RED}RED{C_RESET}    [REAR-RIGHT]  (Food scraps: Pan 135°, Tilt 145° Rev)")
     print("----------------------------------------------------------------")
     print(f" {C_BOLD}[8]{C_RESET} Run Full 2x2 Grid Demo (Cycles 1 -> 2 -> 3 -> 4)")
     print(f" {C_BOLD}[9]{C_RESET} Sweep Pan Diagonals (45° <-> 135°)")
@@ -359,7 +359,7 @@ def main():
     parser.add_argument("--check-calibration", action="store_true", help="Check saved HOME and route range without accessing hardware")
     parser.add_argument("--pan", type=int, help="Move Pan servo to specific angle (0-180)")
     parser.add_argument("--tilt", type=int, help="Move Tilt servo to specific angle (0-180)")
-    parser.add_argument("--bin", choices=['1', '2', '3', '4'], help="Test dump sequence for 2x2 bin (1=Paper/Front-Left, 2=Plastic/Front-Right, 3=Organic/Rear-Left, 4=Landfill/Rear-Right)")
+    parser.add_argument("--bin", choices=['1', '2', '3', '4'], help="Test dump sequence for 2x2 bin (1=Paper/Front-Left, 2=Plastic/Front-Right, 3=Metal/Rear-Left, 4=Food/Rear-Right)")
     parser.add_argument("--test-bins", action="store_true", help="Run full 2x2 4-bin dump sequence and exit")
     parser.add_argument("--sweep", action="store_true", help="Run pan diagonal sweep test and exit")
     parser.add_argument("--release", action="store_true", help="Release PWM signal on both servos and exit")

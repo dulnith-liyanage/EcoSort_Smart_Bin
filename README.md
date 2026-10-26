@@ -13,55 +13,44 @@ item delivery. See [HOME calibration](docs/home_calibration.md).
 `--driver sim` remains available for camera/software checks; it does not prove
 that the physical assembly can reach those routes.
 
-Camera V2 observes a stationary tray. The existing CLIP classifier selects one
-of four routes, and a PCA9685 drives two MG996R servos in the RB0051 pan/tilt kit.
-The assembly is a **fit-test prototype** for the four rounded baskets in the
-project photographs. Bin, case and bracket measurements are still required.
-
-![Complete assembly](hardware/design/output/assembly.png)
+Camera V2 observes a stationary tray. CLIP selects among four supported classes:
+**paper/cardboard, rigid plastic containers, metal cans, and fruit/vegetable
+scraps**. Unsupported or ambiguous predictions require manual removal. The
+PCA9685 drives two MG996R servos in the existing metal pan/tilt kit.
 
 ## Start here
 
-- [Step-by-step assembly, measurements and shopping list](docs/assembly.md)
+- [Existing hardware assembly and bin labels](docs/assembly.md)
+- [Classification, prompt groups and image evaluation](docs/classification.md)
 - [Pi setup, wiring, calibration and running](docs/pi_setup.md)
 - [VNC desktop access and motor-free camera preview](docs/vnc_camera.md)
 - [Diagnose power loss during sorting](docs/shutdown_troubleshooting.md)
-- [What was verified without the Raspberry Pi](docs/verification.md)
-- [Separate printable STLs](hardware/design/output/stl/)
-- [Complete FreeCAD assembly](hardware/design/output/complete_assembly.FCStd)
-- [Complete STEP assembly](hardware/design/output/complete_assembly.step)
-- [Motor mechanism only](hardware/design/output/motor_assembly.FCStd)
-- [Individual editable STEP parts](hardware/design/output/step/)
+- [Verification and remaining checks](docs/verification.md)
 
-Print **09_rim_and_timber_fit_coupon.stl first**, not the whole assembly. The
-assembly contains purchased/reference hardware and bins that must not be printed.
-Print quantities are in the assembly guide. The short camera ribbon is retained:
-the existing cased Pi and Camera V2 sit together on the overhead open carrier.
-The driver stays on the rear clip with longer low-voltage wires to the Pi.
+The project uses the existing bins, tray, centre support and purchased metal
+pan/tilt bracket. It does not require 3D-printed parts. CAD sources, printable
+meshes and generated CAD assemblies have been removed; earlier designs remain
+recoverable from Git history.
 
 ## Repository layout
 
 ```text
-live_smart_bin.py           Active camera/CLIP/sorting application
-servo_control.py            Physical servo calibration tool
-check_camera.py             Read-only Pi camera diagnostic
+live_smart_bin.py            Camera, CLIP, uncertainty checks and sorting
 camera_preview.py           Desktop/VNC camera viewer without motor commands
-setup_raspberry_pi.sh        Pi OS dependency and I2C setup
-fix_openblas.sh              Optional Pi-only BLAS repair utility
-requirements.txt            Active runtime dependencies
-hardware/design/
-  parameters.json           Provisional mechanical dimensions
-  build.py                  FreeCAD geometry and validation
-  Build.FCMacro             Regenerate in FreeCAD
-  output/                   STLs, STEPs, assembly and checks
-docs/                       Assembly, Pi setup and verification guides
-tests/                      Offline regression and STL integrity checks
+check_camera.py             Read-only Pi camera diagnostic
+servo_control.py            Manual servo calibration and bin tests
+servo_settings.py           Shared calibration and hardware ownership lock
+servo_calibration.json      Level HOME and provisional route commands
+setup_raspberry_pi.sh       Pi dependencies and I2C setup
+fix_openblas.sh             Optional repair for a specific BLAS error
+requirements.txt            Runtime dependencies
+scripts/                    Launchers, diagnostics, image evaluation and checks
+docs/                       Setup, calibration, classification and verification
+tests/                      Offline software regressions using fake hardware
 ```
 
-Existing root command names are retained so Pi launch commands still work.
-Superseded CAD versions are recoverable in Git history and an ignored local
-archive; they are not required to rebuild this design. Personal photos, model
-weights, datasets, virtual environments and CAD backup files are not published.
+Personal images, datasets, model weights and virtual environments are not
+published. Existing root entry points remain compatible with Pi launch commands.
 
 ## Check on a computer without the Pi
 
@@ -78,19 +67,14 @@ Tests use fake devices and synthetic frames. They do not open a camera, send
 servo commands, download weights or evaluate classification accuracy. Camera
 enumeration on a Mac reports unavailable; it is not evidence of a wiring fault.
 
-## Regenerate the CAD
+## Start recognition without motors
 
-Open `hardware/design/Build.FCMacro` in FreeCAD and run it. It reads
-`parameters.json` and regenerates the checked parts and complete assembly.
-Alternatively run `build.py --headless` using FreeCAD's Python interpreter for
-geometry exports; run the macro for colours, saved view and preview image.
-FreeCAD's bundled `Part`, `MeshPart` and `Mesh` libraries are sufficient; no
-third-party CAD or downloaded component models are required.
+```sh
+./venv/bin/python live_smart_bin.py --driver sim --cpu-threads 1
+```
 
-The current four categories are paper/cardboard, plastic/polythene, organic,
-and glass/metal/residual. These are project routes, not a claim that the system
-implements every Colombo Municipal Council waste stream. No hazardous-waste
-classifier or physical hazardous-waste handling has been validated. The existing
-zero-shot CLIP model is unchanged; moving the camera requires real-image checks.
-The unrelated, unused MobileNet training experiment has been archived locally
-and is also recoverable from Git history.
+Use the Pi's VNC desktop for a window; add `--headless` over SSH. Close the
+separate camera preview first. The four supported classes are project labels,
+not a claim of compliance with all municipal collection categories. CLIP has
+not been retrained, and no measured accuracy improvement is claimed without
+held-out photographs from this camera and tray. See the evaluation guide.

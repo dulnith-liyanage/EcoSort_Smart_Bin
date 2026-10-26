@@ -6,7 +6,7 @@ import sys
 
 ROOT=Path(__file__).resolve().parents[1]
 sources=list(ROOT.glob('*.py'))
-for folder in ['scripts','tests','hardware/design']:
+for folder in ['scripts','tests']:
     sources.extend((ROOT/folder).rglob('*.py'))
 for path in sources: ast.parse(path.read_text(),filename=str(path))
 print(f'Parsed {len(sources)} Python files.',flush=True)

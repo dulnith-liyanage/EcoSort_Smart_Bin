@@ -1,74 +1,50 @@
-# Verification — 23 October 2026
+# Verification - 26 October 2026
 
-The Raspberry Pi and physical assembly were unavailable. This report separates
-the completed computer checks from work that still requires your hardware.
+## Current software changes
 
-## Completed on this Mac
+The four supported classes are paper/cardboard, rigid plastic, metal cans and
+fruit/vegetable scraps. Tests cover normalised prompt grouping, unknown and
+low-margin rejection, stable predictions, Space retaining checks, all four
+calibrated routes, HOME return, competing-controller locks, I2C compatibility,
+camera format handling and preview validation. Devices, model results and
+camera frames are replaced with test doubles; these are not accuracy tests.
 
-- `venv/bin/python scripts/verify.py`: Python syntax checks, shell syntax checks,
-  and **11 passing tests**. Nine tests exercise fake servos, fake/synthetic camera
-  data, all four routes, channel validation, explicit hardware failure, startup
-  centring, level-before-pan, and a manual-sort main-loop regression. The tenth
-  independently reads all nine binary STLs, checks triangle counts, confirms each
-  edge is shared twice and confirms positive enclosed volume.
-- An additional saved-document regression checks that both FreeCAD assemblies
-  contain the base, pedestal, shoes, adapter and mechanism, with the expected
-  component counts. This catches older/incomplete CAD saves before publication.
-- `venv/bin/python live_smart_bin.py --help`: successful CLI import/argument
-  display with the installed runtime. No model weights downloaded or inference
-  performed by this check.
-- FreeCAD generated all nine printable solids. Each is valid, one connected
-  solid and a closed mesh. The individual STEP parts and complete/motor-only
-  inspection assemblies are included. Preview visually reviewed.
-- Reopened the saved FreeCAD and STEP assemblies: **30** individual components
-  in the complete layout and **16** in the separate motor layout. Group-folder
-  aggregate geometry is excluded from STEP export to avoid duplicate parts.
-- Printed parts do not overlap the **provisional reference bin walls** in the
-  assembled CAD pose. Rounded reference walls/lips are explicitly approximated;
-  this is not proof of fit on the photographed baskets.
-- Conservative 65° whole-tray height envelope is 37.4 mm above reference rim
-  height. This only bounds tray vs rim height; it is not dynamic collision or
-  torque analysis. Detailed fasteners, cables and waste motion are not included.
+Run the portable checks with:
 
-The generated numeric record is
-[`hardware/design/output/checks.json`](../hardware/design/output/checks.json).
-Run the macro again after changing parameters, then rerun the offline checks.
+```sh
+PYTHONDONTWRITEBYTECODE=1 HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 ./venv/bin/python scripts/verify.py
+./venv/bin/python servo_control.py --check-calibration
+./venv/bin/python live_smart_bin.py --help
+./venv/bin/python scripts/evaluate_classifier.py --help
+```
 
-## Necessary runtime fixes
+The current Mac suite has **40 passing tests**, plus Python and shell syntax
+checks. No camera, servo commands or model downloads are used by these checks.
+3D-print/CAD files and their dedicated geometry tests have been removed because
+the physical project no longer uses printed components.
 
-- Explicit HOME commands are emitted even when cached starting angles equal 90°.
-  These are commanded positions, not measured physical positions.
-- Sorting levels a previously tilted tray before panning.
-- Manual sorting discards its pre-movement camera frame; cooldown begins after
-  the synchronous movement completes and uses a monotonic clock.
-- Picamera2 respects the selected camera index and does not swap the BGR bytes
-  of its RGB888 stream. Partially opened cameras are closed on fallback.
-- Explicit PCA9685 mode fails clearly when hardware initialization fails;
-  automatic mode retains its documented simulation fallback.
-- Setup installs the native camera packages. The camera diagnostic reports real
-  observations or unavailable tooling instead of asserting an unobserved I2C
-  error. The unused serial dependency was removed, and the unrelated MobileNet
-  training experiment was archived outside the active repository.
+## Earlier Pi observations
 
-The classifier, prompts, category routing and default servo angle targets remain
-the same. No new recognition accuracy or model training result is claimed.
+Before this classifier change, real Pi checks verified Camera V2 capture,
+cached CLIP inference, PCA9685 communication and operator-observed unloaded
+routes. HOME is now tilt 125 / pan 90, with provisional tilt endpoints 90/160.
+The VNC camera-only viewer displayed live frames and its window was visually
+checked. These earlier observations do not validate the new classification
+accuracy or any loaded item delivery.
 
-## Pending hardware checks
+The Pi kernel recorded undervoltage during a recognition-only diagnostic, even
+without new servo commands. CPU/display load mitigations are not a repair for
+deficient power delivery. See [the diagnosis](shutdown_troubleshooting.md).
 
-1. Measure basket opening, lip, gap, case, tray and kit mounting holes; print the
-   coupon and confirm clamp/wood fit before full prints.
-2. Verify four supported rim contacts, shoe clearance, rear rim stiffness and
-   mast bracing. Confirm actual fasteners and tray attachment; inspect print
-   layers and joints. No load rating has been established.
-3. Check supply ratings/polarity, common ground, servo plug order, I2C address
-   and camera enumeration. Establish the correct servo horns/home directions
-   with small unloaded movements and an accessible power switch.
-4. Confirm the entire movement range including shake, all four trajectories,
-   cable slack and bracket/adapter clearance with light dummy items.
-5. Check live image framing/focus/colour and empty-tray calibration. Evaluate
-   actual samples under real lighting, hands/false positives, throughput and
-   repeated cycles before using waste. A CLIP relative score does not establish
-   correct waste handling or collection-rule compliance.
+## Still required
 
-Without these steps, the correct status is **offline-verified prototype**, not
-hardware-tested or ready for unattended deployment.
+- Deploy and test the current revision on the Pi when it is reachable.
+- Correct power delivery, then verify mounting, camera framing and unloaded
+  clearance before loaded motor tests.
+- Collect labelled local development and held-out images. Compare raw accuracy,
+  accepted accuracy, coverage and per-class errors using the evaluator.
+- Test unsupported objects and hands, changing lighting, stable decisions and
+  one-item delivery into each bin. Test slow light dummy items first.
+
+No improved accuracy percentage, model retraining result, load rating or
+unattended-operation readiness is claimed.

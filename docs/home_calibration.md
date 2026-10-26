@@ -18,8 +18,8 @@ map them to the current physical commands:
 | HOME | 90 | 125 | 0 |
 | Front-left / paper | 135 | 90 | -35 |
 | Front-right / plastic | 45 | 90 | -35 |
-| Rear-left / organic | 45 | 160 | +35 |
-| Rear-right / residual | 135 | 160 | +35 |
+| Rear-left / metal | 45 | 160 | +35 |
+| Rear-right / food scraps | 135 | 160 | +35 |
 
 Logical tilt 35 maps to command 90, logical 90 to HOME 125, and logical 145
 to command 160. Intermediate values interpolate on each side of HOME.

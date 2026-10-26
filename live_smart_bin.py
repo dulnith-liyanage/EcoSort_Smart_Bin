@@ -84,41 +84,82 @@ CATEGORY_CONFIG = {
         'cmd': 'P',
         'pan': 135,
         'tilt': 35,
-        'servo_desc': 'Pan 135° -> Tilt Forward 35° (Front-Left)',
-        'color': (235, 135, 40),      # Colombo CMC Blue (BGR: B=235, G=135, R=40)
-        'default_prompt': "a piece of paper, cardboard box, brown corrugated cardboard, newspaper, magazine, book, or clean paper packaging"
+        'servo_desc': 'Front-Left bin',
+        'color': (235, 135, 40),      # Project bin Blue (BGR: B=235, G=135, R=40)
+        'prompts': ["a photo of a piece of paper", "a photo of newspaper", "a photo of cardboard packaging"]
     },
-    'plastic_metal': {
-        'label': 'Plastics & Polythene (Orange Bin)',
+    'plastic': {
+        'label': 'Rigid Plastic (Orange Bin)',
         'bin_pos': 'Front-Right',
         'cmd': 'M',
         'pan': 45,
         'tilt': 35,
-        'servo_desc': 'Pan 45° -> Tilt Forward 35° (Front-Right)',
-        'color': (30, 140, 255),     # Colombo CMC Orange (BGR: B=30, G=140, R=255)
-        'default_prompt': "a plastic water bottle, clear PET bottle, plastic food container, polythene grocery bag, lunch sheet, milk packet, or plastic cup"
+        'servo_desc': 'Front-Right bin',
+        'color': (30, 140, 255),     # Project bin Orange (BGR: B=30, G=140, R=255)
+        'prompts': ["a photo of a plastic bottle", "a photo of a rigid plastic food container", "a photo of a plastic cup"]
     },
-    'organic': {
-        'label': 'Organic Waste (Green Bin)',
+    'metal': {
+        'label': 'Metal Cans (Green Bin)',
         'bin_pos': 'Rear-Left',
         'cmd': 'O',
         'pan': 45,
         'tilt': 145,
-        'servo_desc': 'Pan 45° -> Tilt Backward 145° (Rear-Left)',
-        'color': (60, 210, 60),      # Colombo CMC Green (BGR: B=60, G=210, R=60)
-        'default_prompt': "organic food waste, cooked rice, fruit peels, banana skin, vegetable scraps, coconut shell, tea leaves, or garden leaves"
+        'servo_desc': 'Rear-Left bin',
+        'color': (60, 210, 60),      # Project bin Green (BGR: B=60, G=210, R=60)
+        'prompts': ["a photo of an aluminium drink can", "a photo of a metal food tin", "a photo of a crushed metal can"]
     },
-    'general': {
-        'label': 'Glass/Metal & Residual (Red Bin)',
+    'food': {
+        'label': 'Fruit & Vegetable Scraps (Red Bin)',
         'bin_pos': 'Rear-Right',
         'cmd': 'G',
         'pan': 135,
         'tilt': 145,
-        'servo_desc': 'Pan 135° -> Tilt Backward 145° (Rear-Right)',
-        'color': (60, 60, 230),      # Colombo CMC Red (BGR: B=60, G=60, R=230)
-        'default_prompt': "aluminum soda can, metal tin can, glass bottle, multi-layer foil snack wrapper, chip bag, styrofoam, or non-recyclable residual trash"
+        'servo_desc': 'Rear-Right bin',
+        'color': (60, 60, 230),      # Project bin Red (BGR: B=60, G=60, R=230)
+        'prompts': ["a photo of a banana peel", "a photo of orange peels", "a photo of vegetable scraps"]
     }
 }
+
+UNKNOWN_PROMPTS = [
+    'a photo of a glass bottle', 'a photo of a plastic bag',
+    'a photo of a foil snack wrapper', 'a photo of an empty tray',
+    'a photo of a human hand',
+]
+
+
+def build_prompt_groups(custom=None):
+    groups = {key: list(cfg['prompts']) for key, cfg in CATEGORY_CONFIG.items()}
+    groups['unknown'] = list(UNKNOWN_PROMPTS)
+    if custom is not None:
+        if not isinstance(custom, dict) or set(custom) - set(groups):
+            raise ValueError('Prompt keys must be paper, plastic, metal, food or unknown. Old category files must be migrated.')
+        for key, value in custom.items():
+            prompts = [value] if isinstance(value, str) else value
+            if not isinstance(prompts, list) or not prompts or any(
+                    not isinstance(p, str) or not p.strip() for p in prompts):
+                raise ValueError(f'{key}: supply a non-empty string or list of short descriptions.')
+            groups[key] = [p.strip() for p in prompts]
+    return groups
+
+
+def ensemble_text_features(features, group_sizes):
+    features = features / features.norm(dim=-1, keepdim=True).clamp_min(1e-12)
+    groups = torch.split(features, group_sizes)
+    means = torch.stack([group.mean(dim=0) for group in groups])
+    return means / means.norm(dim=-1, keepdim=True).clamp_min(1e-12)
+
+
+def prediction_is_eligible(category, probabilities, threshold=0.60, margin=0.15):
+    """Reject unknown, invalid scores, ties and ambiguous supported classes."""
+    if category not in CATEGORY_CONFIG or category not in probabilities:
+        return False
+    values = np.asarray(list(probabilities.values()), dtype=float)
+    if len(values) < 2 or not np.isfinite(values).all() or (values < 0).any() or (values > 1).any():
+        return False
+    score = probabilities[category]
+    runner_up = max(p for key, p in probabilities.items() if key != category)
+    return bool(score >= threshold and score > runner_up and score - runner_up >= margin)
+
 
 class BaseServoController:
     """Base interface for Servo Actuation."""
@@ -302,23 +343,17 @@ class ClipClassifier:
 
         self.categories = list(CATEGORY_CONFIG.keys())
         
-        # Build prompt list with optional user customizations
-        prompts_dict = {cat: CATEGORY_CONFIG[cat]['default_prompt'] for cat in self.categories}
-        if custom_prompts:
-            for cat, prompt in custom_prompts.items():
-                if cat in prompts_dict and prompt:
-                    prompts_dict[cat] = prompt
-                    log_info(f"Custom prompt loaded for '{cat}': \"{prompt[:60]}...\"")
+        groups = build_prompt_groups(custom_prompts)
+        self.categories = list(groups)
+        self.prompts = [prompt for group in groups.values() for prompt in group]
 
-        self.prompts = [prompts_dict[cat] for cat in self.categories]
-
-        # Pre-compute text embeddings once at startup
-        log_info("Pre-computing category text embeddings for instant zero-shot inference...")
+        # Encode short descriptions separately, then average normalised features
+        # within each class. Different prompt counts do not weight the bins.
         text_inputs = self.processor(text=self.prompts, return_tensors="pt", padding=True).to(self.device)
         with torch.no_grad():
             text_outputs = self.model.get_text_features(**text_inputs)
             text_features = self._extract_tensor(text_outputs)
-            self.text_features = text_features / text_features.norm(dim=-1, keepdim=True)
+            self.text_features = ensemble_text_features(text_features, [len(g) for g in groups.values()])
 
         log_success("CLIP Classifier initialized and ready!")
 
@@ -459,12 +494,12 @@ def draw_hud(frame, last_probs, fps, hw_status, hw_color, in_cooldown, locked_te
         cv2.line(frame, (mx1 + 25, my1 + 45), (mx2 - 25, my1 + 45), (60, 60, 60), 1)
 
         shortcuts = [
-            ("[1] : PAPER (Blue Bin)", "Front-Left  (Pan 135°, Tilt 35° Fwd)"),
-            ("[2] : PLASTIC (Orange Bin)", "Front-Right (Pan 45°, Tilt 35° Fwd)"),
-            ("[3] : ORGANIC (Green Bin)", "Rear-Left   (Pan 45°, Tilt 145° Rev)"),
-            ("[4] : RESIDUAL (Red Bin)", "Rear-Right  (Pan 135°, Tilt 145° Rev)"),
+            ("[1] : PAPER (Blue Bin)", "Manual test: front-left"),
+            ("[2] : PLASTIC (Orange Bin)", "Manual test: front-right"),
+            ("[3] : METAL CANS (Green Bin)", "Manual test: rear-left"),
+            ("[4] : FOOD SCRAPS (Red Bin)", "Manual test: rear-right"),
             ("[C] : Recalibrate Tray", "Resets background subtraction"),
-            ("[Space] : Force Instant Scan", "Evaluates current tray frame"),
+            ("[Space] : Scan", "Keeps score/stability checks"),
             ("[H] : Close Help Menu", "Toggles this screen"),
             ("[Q] : Quit EcoSort", "Resets servos to neutral & exits")
         ]
@@ -558,13 +593,14 @@ def main():
     parser.add_argument('--headless', action='store_true', help='Run in headless mode without GUI window (ideal for Raspberry Pi SSH)')
     parser.add_argument('--cpu-threads', type=int, choices=range(1, 5), default=2,
                         help='CPU inference threads (default: 2, leaving capacity for VNC)')
-    parser.add_argument('--threshold', type=float, default=0.60, help='Confidence threshold to trigger physical sort (default: 0.60)')
+    parser.add_argument('--threshold', type=float, default=0.60, help='Relative score threshold to trigger physical sort (default: 0.60)')
+    parser.add_argument('--margin', type=float, default=0.15, help='Minimum top-two score gap (default: 0.15; tune on validation images)')
     parser.add_argument('--stable-frames', type=int, default=3, help='Consecutive identical predictions required (default: 3)')
     parser.add_argument('--cooldown', type=float, default=3.8, help='Cooldown seconds after physical sorting action (default: 3.8)')
     parser.add_argument('--prompts-file', type=str, default=None, help='Path to JSON file with custom category prompts')
     args = parser.parse_args()
-    if args.stable_frames < 1 or not 0 < args.threshold <= 1 or args.cooldown < 0:
-        parser.error('stable-frames must be positive, threshold in (0,1], cooldown nonnegative')
+    if args.stable_frames < 1 or not 0 < args.threshold <= 1 or args.cooldown < 0 or not 0 <= args.margin <= 1:
+        parser.error('stable-frames must be positive, threshold in (0,1], margin in [0,1], cooldown nonnegative')
     if args.driver != 'sim':
         try:
             servo_settings.load_calibration().validate_routes(CATEGORY_CONFIG.values())
@@ -584,9 +620,10 @@ def main():
         try:
             with open(args.prompts_file, 'r') as f:
                 custom_prompts = json.load(f)
+            build_prompt_groups(custom_prompts)
             log_success(f"Loaded custom prompts from '{args.prompts_file}'")
         except Exception as e:
-            log_warning(f"Could not load prompts file '{args.prompts_file}': {e}. Using defaults.")
+            parser.error(f"Invalid prompts file: {e}")
 
     # Initialize CLIP
     classifier = ClipClassifier(custom_prompts=custom_prompts, cpu_threads=args.cpu_threads)
@@ -609,7 +646,9 @@ def main():
     print(f" {C_BOLD}{C_GREEN}ECOSORT SMART BIN: 2-AXIS PAN-TILT 2x2 GRID WASTE SEGREGATION{C_RESET}")
     print("   Four project waste routes; verify local collection requirements separately")
     print(f"   Device Acceleration : {classifier.dev_desc}")
-    print(f"   Confidence Cutoff   : {args.threshold * 100:.0f}% | Cooldown: {args.cooldown}s")
+    print(f"   Relative Score Cutoff: {args.threshold * 100:.0f}% | Cooldown: {args.cooldown}s")
+    print(f"   Minimum top-two gap : {args.margin * 100:.0f}% | Stable predictions: {args.stable_frames}")
+    print("   Unknown or uncertain items: no sort; remove manually.")
     print("   --- 4 Target Bins in 2x2 Grid (Center-Mounted Pan-Tilt) ---")
     saved = servo_settings.load_calibration()
     print(f"   Calibrated HOME: Pan {saved.pan_home}°, Tilt {saved.tilt_home}°")
@@ -626,6 +665,7 @@ def main():
 
     # State Variables
     locked_text = None
+    decision_text = None
     locked_color = (0, 0, 0)
     empty_frames = 0
     cooldown_until = 0.0
@@ -713,18 +753,19 @@ def main():
                     locked_text = "[RECALIBRATING] Empty tray recalibrated..."
                     locked_color = (0, 165, 255)
                     prediction_history = []
+                    decision_text = None
                     continue
                 elif key == ord(' '):
                     # Force scan current frame
-                    log_info("Force scan triggered via Spacebar.")
+                    log_info("Scan requested via Spacebar; score and stability checks remain active.")
                     force_scan = True
                 elif key in [ord('1'), ord('2'), ord('3'), ord('4')]:
                     # Manual servo triggers for testing
                     cat_map = {
                         ord('1'): 'paper',
-                        ord('2'): 'plastic_metal',
-                        ord('3'): 'organic',
-                        ord('4'): 'general'
+                        ord('2'): 'plastic',
+                        ord('3'): 'metal',
+                        ord('4'): 'food'
                     }
                     sel_cat = cat_map[key]
                     cfg = CATEGORY_CONFIG[sel_cat]
@@ -770,39 +811,49 @@ def main():
                 last_probs = probs
 
                 if is_headless:
-                    print(f"\r[EVAL] Paper: {probs['paper']*100:2.0f}% | Plastic/Metal: {probs['plastic_metal']*100:2.0f}% | Organic: {probs['organic']*100:2.0f}% | General: {probs['general']*100:2.0f}% | Top: {pred_cat} ({conf*100:.0f}%)", end='', flush=True)
+                    print(f"\r[EVAL] Paper: {probs['paper']*100:2.0f}% | Plastic: {probs['plastic']*100:2.0f}% | Metal: {probs['metal']*100:2.0f}% | Food scraps: {probs['food']*100:2.0f}% | Top: {pred_cat} ({conf*100:.0f}%)", end='', flush=True)
 
-                if (conf >= args.threshold or force_scan) and locked_text is None:
+                if prediction_is_eligible(pred_cat, probs, args.threshold, args.margin) and locked_text is None:
+                    decision_text = 'Checking stable prediction...'
                     prediction_history.append((pred_cat, conf))
                     if len(prediction_history) > args.stable_frames:
                         prediction_history.pop(0)
 
                     recent_classes = [p[0] for p in prediction_history]
                     # Trigger physical action once category is stable across required frames
-                    if (len(recent_classes) == args.stable_frames and len(set(recent_classes)) == 1) or force_scan:
-                        final_cat = recent_classes[0] if not force_scan else pred_cat
-                        avg_conf = np.mean([p[1] for p in prediction_history]) if not force_scan else conf
+                    if len(recent_classes) == args.stable_frames and len(set(recent_classes)) == 1:
+                        final_cat = recent_classes[0]
+                        avg_conf = np.mean([p[1] for p in prediction_history])
                         cfg = CATEGORY_CONFIG[final_cat]
 
                         # Trigger Hardware Pan-Tilt Dump
                         controller.trigger_sort(final_cat, cfg)
-                        log_sort_event(cfg['label'], avg_conf, cfg['cmd'], cfg['servo_desc'])
+                        pan, tilt, _ = saved.route(cfg)
+                        route_desc = f"Pan {pan} -> Tilt {tilt} ({cfg['bin_pos']})"
+                        log_sort_event(cfg['label'], avg_conf, cfg['cmd'], route_desc)
 
-                        locked_text = f"[{avg_conf*100:.0f}%] {cfg['label'].upper()} -> {cfg['servo_desc']}"
+                        locked_text = f"[{avg_conf*100:.0f}%] {cfg['label'].upper()} -> {cfg['bin_pos']}"
                         locked_color = cfg['color']
                         prediction_history = []
                         cooldown_until = time.monotonic() + args.cooldown
                 else:
-                    if conf < args.threshold:
-                        prediction_history = []
+                    prediction_history = []
+                    if locked_text is None:
+                        status_reason = 'Unsupported item' if pred_cat == 'unknown' else 'Uncertain prediction'
+                        message = f'{status_reason}: remove item manually; no sort.'
+                        if decision_text != message:
+                            log_info(message)
+                        decision_text = message
             else:
                 pip_preview = None
                 if not in_cooldown:
+                    prediction_history = []
                     # Dynamically adapt background slowly
                     cv2.accumulateWeighted(gray_roi, background_frame, 0.05)
                     empty_frames += 1
                     if empty_frames > 12:
                         locked_text = None
+                        decision_text = None
                         prediction_history = []
                         # Fade out probability display when tray is empty
                         last_probs = {c: max(0.0, last_probs[c] * 0.85) for c in classifier.categories}
@@ -818,7 +869,9 @@ def main():
                 hw_status = f"{controller.status_str} | {classifier.dev_desc}"
                 hw_color = (0, 255, 120) if "SIMULATION" not in controller.status_str else (0, 190, 255)
 
-                draw_hud(frame, last_probs, fps, hw_status, hw_color, in_cooldown, locked_text, locked_color, show_help, pip_preview)
+                draw_hud(frame, last_probs, fps, hw_status, hw_color, in_cooldown,
+                         locked_text or decision_text, locked_color if locked_text else (0, 100, 180),
+                         show_help, pip_preview)
                 cv2.imshow("EcoSort Smart Bin - Zero-Shot CLIP", frame)
             else:
                 # Modest sleep in headless mode to prevent high CPU utilization
