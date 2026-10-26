@@ -148,6 +148,7 @@ class DirectPca9685Controller(BaseServoController):
         except ImportError:
             raise RuntimeError("Missing 'adafruit-circuitpython-servokit'. Install it via: pip install adafruit-circuitpython-servokit")
 
+        self._hardware_lock = servo_settings.acquire_device_lock(address)
         self.kit = servo_settings.prepare_servo_kit(ServoKit(channels=16, address=address))
         self.pan_ch = pan_channel
         self.tilt_ch = tilt_channel
@@ -250,7 +251,7 @@ def init_hardware_controller(driver_mode='auto', pan_ch=0, tilt_ch=1):
     try:
         if os.path.exists('/dev/i2c-1') or driver_mode in ['auto', 'rpi-i2c', 'pca9685']:
             return DirectPca9685Controller(pan_channel=pan_ch, tilt_channel=tilt_ch)
-    except ValueError:
+    except (ValueError, servo_settings.HardwareInUseError):
         # A mechanically unreachable calibration must never masquerade as a
         # successful simulation fallback in automatic mode.
         raise

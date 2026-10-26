@@ -115,6 +115,7 @@ class ServoPanTilt:
 
         try:
             log_info(f"Connecting to PCA9685 at I2C address 0x{self.i2c_address:02X}...")
+            self._hardware_lock = servo_settings.acquire_device_lock(self.i2c_address)
             self.kit = servo_settings.prepare_servo_kit(ServoKit(channels=16, address=self.i2c_address))
             
             # Inherited pulse range; real mechanical travel still needs checking.

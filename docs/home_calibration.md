@@ -90,6 +90,13 @@ position sensor. Keep the servo power switch accessible.
 
 ## I2C compatibility correction
 
+Only one controller may own the PCA9685 at a time. Both programs acquire the
+same operating-system file lock before initialising ServoKit. A second sorter
+or calibrator exits without commanding motors; it must not silently simulate.
+Close old terminals/programs before restarting. Direct third-party I2C tools
+do not respect this lock and must not be used concurrently. A lock file may
+remain after exit; ownership is released by the OS, not by deleting the file.
+
 The real Pi driver exposed a `memoryview` combined-read error with Blinka 9.2.0
 and PureIO 1.1.11. `servo_settings.BufferCompatibleI2C` converts the outgoing
 buffer to bytes while preserving input/output slicing and locking. It wraps

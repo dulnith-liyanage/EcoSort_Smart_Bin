@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock
 
-from servo_settings import Calibration, BufferCompatibleI2C, load_calibration, prepare_servo_kit
+from servo_settings import Calibration, BufferCompatibleI2C, load_calibration, prepare_servo_kit, acquire_device_lock, HardwareInUseError
 
 
 class CalibrationTests(unittest.TestCase):
@@ -65,6 +65,16 @@ class CalibrationTests(unittest.TestCase):
 
 
 class I2CCompatibilityTests(unittest.TestCase):
+    def test_only_one_controller_can_own_driver_and_lock_releases(self):
+        with tempfile.TemporaryDirectory() as folder:
+            first = acquire_device_lock(0x40, folder)
+            try:
+                with self.assertRaises(HardwareInUseError):
+                    acquire_device_lock(0x40, folder)
+            finally:
+                first.close()
+            acquire_device_lock(0x40, folder).close()
+
     def test_memoryview_normalisation_preserves_slices_and_output_alias(self):
         class OldBackend:
             def writeto_then_readfrom(self, address, out, inp, **kwargs):

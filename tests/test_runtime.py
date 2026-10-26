@@ -26,6 +26,7 @@ class RuntimeTests(unittest.TestCase):
         self.addCleanup(stack.close)
         stack.enter_context(patch.dict(sys.modules, {'adafruit_servokit': SimpleNamespace(ServoKit=lambda **kw: kit)}))
         stack.enter_context(patch('time.sleep'))
+        stack.enter_context(patch.object(servo_settings, 'acquire_device_lock', return_value=None))
         stack.enter_context(contextlib.redirect_stdout(io.StringIO()))
         stack.enter_context(patch.object(servo_settings, 'load_calibration',
                                        return_value=servo_settings.Calibration()))
@@ -104,6 +105,12 @@ class RuntimeTests(unittest.TestCase):
             self.assertIn((1,expected),self.events)
             self.assertTrue(all(5 <= angle <= 70 for ch,angle in self.events if ch==1))
             self.assertEqual((c.current_pan,c.current_tilt),(90,15))
+
+    def test_competing_controller_does_not_fall_back_to_simulation(self):
+        with patch.object(servo_settings, 'acquire_device_lock', side_effect=servo_settings.HardwareInUseError('busy')):
+            with self.assertRaises(servo_settings.HardwareInUseError):
+                live.init_hardware_controller('auto')
+        self.assertEqual(self.events, [])
 
     def test_startup_emits_home(self):
         live.DirectPca9685Controller()
