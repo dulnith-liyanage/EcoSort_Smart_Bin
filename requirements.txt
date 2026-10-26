@@ -1,6 +1,6 @@
 opencv-python>=4.5.0
 numpy
-torch>=2.0.0
+torch>=2.6.0
 torchvision>=0.15.0
 transformers>=4.49.0
 pillow

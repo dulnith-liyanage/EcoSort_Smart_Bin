@@ -361,13 +361,16 @@ class ClipClassifier:
         log_info(f"Loading vision-language model '{model_name}' on {self.dev_desc}...")
         model_class = AutoModel if self.is_siglip else CLIPModel
         processor_class = AutoProcessor if self.is_siglip else CLIPProcessor
+        # The official CLIP checkpoint/cache uses a PyTorch state dictionary;
+        # SigLIP 2 supplies safetensors. Never request remote Python model code.
+        # weights_only keeps legacy CLIP loading restricted to weight tensors.
         try:
             # Cache-first: loads instantly if already downloaded locally
-            self.model = model_class.from_pretrained(model_name, local_files_only=True, use_safetensors=True).to(self.device)
+            self.model = model_class.from_pretrained(model_name, local_files_only=True, use_safetensors=self.is_siglip, weights_only=True).to(self.device)
             self.processor = processor_class.from_pretrained(model_name, local_files_only=True)
         except OSError:
             log_info(f"Cache miss or update needed. Downloading '{model_name}' from Hugging Face Hub...")
-            self.model = model_class.from_pretrained(model_name, use_safetensors=True).to(self.device)
+            self.model = model_class.from_pretrained(model_name, use_safetensors=self.is_siglip, weights_only=True).to(self.device)
             self.processor = processor_class.from_pretrained(model_name)
         self.model.eval()
 

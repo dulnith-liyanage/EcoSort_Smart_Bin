@@ -55,7 +55,8 @@ class ClassificationTests(unittest.TestCase):
             self.assertGreater(probabilities['unknown'], score)
             self.assertFalse(live.prediction_is_eligible(category, probabilities))
             self.assertEqual(calls[0]['max_length'], 64 if backend == 'siglip2' else 77)
-            self.assertTrue(load.call_args.kwargs['use_safetensors'])
+            self.assertEqual(load.call_args.kwargs['use_safetensors'], backend == 'siglip2')
+            self.assertTrue(load.call_args.kwargs['weights_only'])
 
     def test_prompt_groups_and_invalid_old_keys(self):
         groups = live.build_prompt_groups({'paper': ['a photo of paper', 'a photo of cardboard']})
