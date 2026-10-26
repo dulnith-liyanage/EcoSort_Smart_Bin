@@ -262,9 +262,19 @@ def init_hardware_controller(driver_mode='auto', pan_ch=0, tilt_ch=1):
 
     return SimulatedServoController()
 
+def configure_cpu_threads(requested=2):
+    """Leave CPU capacity for the desktop/VNC; this cannot repair undervoltage."""
+    if type(requested) is not int or not 1 <= requested <= 4:
+        raise ValueError('CPU threads must be an integer from 1 to 4.')
+    threads = min(requested, os.cpu_count() or 1)
+    torch.set_num_threads(threads)
+    cv2.setNumThreads(1)
+    return threads
+
+
 class ClipClassifier:
     """Zero-Shot CLIP Classifier with pre-computed text embeddings and custom prompt support."""
-    def __init__(self, model_name="openai/clip-vit-base-patch32", custom_prompts=None):
+    def __init__(self, model_name="openai/clip-vit-base-patch32", custom_prompts=None, cpu_threads=2):
         # Select best available hardware acceleration
         if torch.backends.mps.is_available():
             self.device = "mps"
@@ -274,10 +284,9 @@ class ClipClassifier:
             self.dev_desc = "NVIDIA CUDA GPU"
         else:
             self.device = "cpu"
-            # Optimize PyTorch CPU threading on Raspberry Pi (utilize all 4 ARM cores)
-            num_cores = os.cpu_count() or 4
-            num_threads = min(4, num_cores)
-            torch.set_num_threads(num_threads)
+            # Reduce CPU contention and peak load alongside the VNC desktop.
+            num_cores = os.cpu_count() or 1
+            num_threads = configure_cpu_threads(cpu_threads)
             self.dev_desc = f"CPU (Raspberry Pi / {num_cores} cores, {num_threads} threads)"
 
         log_info(f"Loading CLIP model '{model_name}' on {self.dev_desc}...")
@@ -480,7 +489,8 @@ class CameraCapture:
                 log_info("[CAMERA] Probing Raspberry Pi CSI Camera via Picamera2...")
                 self.picam2 = Picamera2(camera_idx)
                 config = self.picam2.create_preview_configuration(
-                    main={"size": (640, 480), "format": "RGB888"}
+                    main={"size": (640, 480), "format": "RGB888"},
+                    controls={"FrameRate": 15}
                 )
                 self.picam2.configure(config)
                 self.picam2.start()
@@ -546,6 +556,8 @@ def main():
     parser.add_argument('--tilt-ch', type=int, default=1, help="PCA9685 channel for Tilt servo (default: 1)")
     parser.add_argument('--camera', type=int, default=0, help='Camera index (0 for CSI/built-in, 1 for external USB)')
     parser.add_argument('--headless', action='store_true', help='Run in headless mode without GUI window (ideal for Raspberry Pi SSH)')
+    parser.add_argument('--cpu-threads', type=int, choices=range(1, 5), default=2,
+                        help='CPU inference threads (default: 2, leaving capacity for VNC)')
     parser.add_argument('--threshold', type=float, default=0.60, help='Confidence threshold to trigger physical sort (default: 0.60)')
     parser.add_argument('--stable-frames', type=int, default=3, help='Consecutive identical predictions required (default: 3)')
     parser.add_argument('--cooldown', type=float, default=3.8, help='Cooldown seconds after physical sorting action (default: 3.8)')
@@ -577,7 +589,7 @@ def main():
             log_warning(f"Could not load prompts file '{args.prompts_file}': {e}. Using defaults.")
 
     # Initialize CLIP
-    classifier = ClipClassifier(custom_prompts=custom_prompts)
+    classifier = ClipClassifier(custom_prompts=custom_prompts, cpu_threads=args.cpu_threads)
 
     # Initialize Hardware Controller (Direct Raspberry Pi I2C PCA9685 or Simulation)
     controller = init_hardware_controller(

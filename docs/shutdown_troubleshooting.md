@@ -6,8 +6,23 @@ The operator reports that both Pi and motor-driver lights go off when an item
 is presented, and that the driver has a separate supply. The Pi was reachable
 after a recent reboot. At idle it reported `get_throttled=0x0`, supply voltage
 about 5.14 V, temperature 48 C, 3.5 GiB available RAM and no swap use.
-These readings describe the new boot and do not exclude a power dip in the
-previous boot. Previous-boot journals were not available. No cause is proven.
+These initial readings describe the new boot. Previous-boot journals were not
+available.
+
+The recognition-only diagnostic then completed 20 live camera/CLIP predictions
+without commanding motors, but recorded a transition from `0x0` to `0x50000`.
+The kernel logged **Undervoltage detected!** at 14:57:20 and **Voltage normalised**
+at 14:57:24 local time. This confirms a supply dip during the diagnostic; it
+does not identify the faulty cable/supply/wire or prove the exact cause of the
+earlier shutdown. Memory remained available and temperature stayed below 60 C.
+The operator reports the issue occurs when using VNC, while SSH-only operation
+works. The VNC service was running during this diagnostic.
+
+As load mitigations, CPU inference now defaults to two threads, OpenCV uses one
+worker, and CSI capture is limited to 15 fps. The deployed headless VNC desktop
+was reduced from 1920x1080 to 1280x720. These changes do not repair deficient
+power delivery. `--cpu-threads 1` provides a slower option; do not raise the
+thread count to compensate for poor throughput until power is stable.
 
 A Python exception usually terminates the application, rather than removing
 board power. Possible causes include a weak Pi supply/cable, servo supply
@@ -34,7 +49,7 @@ record. Instantaneous voltage readings cannot capture every short transient.
 For supervised item recognition without servo commands, run:
 
 ```sh
-./venv/bin/python -u live_smart_bin.py --driver sim
+./venv/bin/python -u live_smart_bin.py --driver sim --cpu-threads 1
 ```
 
 Do not use `--driver auto` or `--driver rpi-i2c` until the power wiring and

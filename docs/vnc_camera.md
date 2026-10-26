@@ -4,7 +4,7 @@
 
 The Pi at `192.168.8.159` uses Raspberry Pi OS Trixie's Wayland desktop and
 WayVNC. VNC is enabled at boot and uses Pi-account authentication. The existing
-desktop session already starts automatically and has a 1920x1080 headless
+desktop session already starts automatically and has a 1280x720 headless
 display, so no monitor or OS reinstall is needed.
 
 1. Keep the Mac and Pi on the same local network.

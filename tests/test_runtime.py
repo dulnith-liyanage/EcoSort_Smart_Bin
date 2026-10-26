@@ -165,6 +165,21 @@ class RuntimeTests(unittest.TestCase):
             with self.assertRaises(ValueError): live.DirectPca9685Controller(pan,tilt)
             with self.assertRaises(ValueError): calibration.ServoPanTilt(pan,tilt)
 
+    def test_cpu_budget_leaves_capacity_for_vnc(self):
+        with patch.object(live.os, 'cpu_count', return_value=4), \
+             patch.object(live.torch, 'set_num_threads') as torch_threads, \
+             patch.object(live.cv2, 'setNumThreads') as image_threads:
+            self.assertEqual(live.configure_cpu_threads(), 2)
+            torch_threads.assert_called_once_with(2)
+            image_threads.assert_called_once_with(1)
+        with patch.object(live.os, 'cpu_count', return_value=None), \
+             patch.object(live.torch, 'set_num_threads'), \
+             patch.object(live.cv2, 'setNumThreads'):
+            self.assertEqual(live.configure_cpu_threads(), 1)
+        for value in (0, 5, True, 1.5):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                live.configure_cpu_threads(value)
+
     def test_camera_rgb888_is_already_bgr(self):
         c = live.CameraCapture.__new__(live.CameraCapture)
         frame = np.array([[[7,31,230]]],dtype=np.uint8)
