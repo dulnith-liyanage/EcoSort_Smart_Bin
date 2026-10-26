@@ -137,18 +137,19 @@ class ServoPanTilt:
             print("  4. Check bus detection: i2cdetect -y 1 (should display 40)")
             sys.exit(1)
 
-    def smooth_move(self, channel, from_ang, to_ang, step_delay=0.009):
+    def smooth_move(self, channel, from_ang, to_ang, step_delay=None):
         """Moves a servo gradually to prevent power spikes and mechanical gear jerking."""
         from_ang = int(max(0, min(180, from_ang)))
         to_ang = int(max(0, min(180, to_ang)))
         if from_ang == to_ang:
             return
         step = 1 if to_ang > from_ang else -1
+        step_delay = max(step_delay or self.calibration.step_delay, self.calibration.step_delay)
         for a in range(from_ang, to_ang + step, step):
             self.kit.servo[channel].angle = a
             time.sleep(step_delay)
 
-    def set_pan(self, angle, smooth=True, step_delay=0.009):
+    def set_pan(self, angle, smooth=True, step_delay=None):
         """Sets Pan (Azimuth) angle [0 - 180 deg]."""
         target = int(max(0, min(180, angle)))
         if smooth:
@@ -158,7 +159,7 @@ class ServoPanTilt:
         self.current_pan = target
         log_info(f"Pan -> {self.current_pan}°")
 
-    def set_tilt(self, angle, smooth=True, step_delay=0.009):
+    def set_tilt(self, angle, smooth=True, step_delay=None):
         """Sets Tilt (Pitch) angle [0 - 180 deg]."""
         target = int(max(0, min(180, angle)))
         if smooth:
@@ -210,21 +211,12 @@ class ServoPanTilt:
         self.set_tilt(tilt)
         time.sleep(1.0)
 
-        # Step 3: Gentle vibration pulse to ensure sticky waste slides off
-        log_info("3. Vibration pulse...")
-        try:
-            if b['tilt'] < 90: # Forward dump
-                self.kit.servo[self.tilt_ch].angle = shake
-                time.sleep(0.12)
-                self.kit.servo[self.tilt_ch].angle = tilt
-                time.sleep(0.20)
-            else: # Backward dump
-                self.kit.servo[self.tilt_ch].angle = shake
-                time.sleep(0.12)
-                self.kit.servo[self.tilt_ch].angle = tilt
-                time.sleep(0.20)
-        except Exception:
-            pass
+        if shake != tilt:
+            log_info("3. Calibrated shake...")
+            self.set_tilt(shake)
+            time.sleep(0.12)
+            self.set_tilt(tilt)
+            time.sleep(0.20)
 
         # Step 4: Return to calibrated level position.
         log_info(f"4. Returning tilt to calibrated HOME {self.calibration.tilt_home}°...")

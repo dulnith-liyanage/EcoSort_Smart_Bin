@@ -161,12 +161,13 @@ class DirectPca9685Controller(BaseServoController):
         self.reset_home()
         log_success(f"Direct Raspberry Pi I2C PCA9685 Connected (Pan: Ch{pan_channel}, Tilt: Ch{tilt_channel})")
 
-    def _smooth_move(self, channel, from_ang, to_ang, step_delay=0.009):
+    def _smooth_move(self, channel, from_ang, to_ang, step_delay=None):
         from_ang = int(from_ang)
         to_ang = int(to_ang)
         if from_ang == to_ang:
             return
         step = 1 if to_ang > from_ang else -1
+        step_delay = max(step_delay or self.calibration.step_delay, self.calibration.step_delay)
         for a in range(from_ang, to_ang + step, step):
             self.kit.servo[channel].angle = a
             time.sleep(step_delay)
@@ -190,20 +191,13 @@ class DirectPca9685Controller(BaseServoController):
         self.current_tilt = target_tilt
         time.sleep(1.0)
 
-        # Step 3: Gentle vibration pulse to dislodge sticky waste
-        try:
-            if cfg['tilt'] < 90:
-                self.kit.servo[self.tilt_ch].angle = shake_tilt
-                time.sleep(0.12)
-                self.kit.servo[self.tilt_ch].angle = target_tilt
-                time.sleep(0.20)
-            else:
-                self.kit.servo[self.tilt_ch].angle = shake_tilt
-                time.sleep(0.12)
-                self.kit.servo[self.tilt_ch].angle = target_tilt
-                time.sleep(0.20)
-        except Exception:
-            pass
+        if shake_tilt != target_tilt:
+            self._smooth_move(self.tilt_ch, target_tilt, shake_tilt)
+            self.current_tilt = shake_tilt
+            time.sleep(0.12)
+            self._smooth_move(self.tilt_ch, shake_tilt, target_tilt)
+            self.current_tilt = target_tilt
+            time.sleep(0.20)
 
         # Step 4: Return tilt to the calibrated HOME.
         self._smooth_move(self.tilt_ch, self.current_tilt, self.calibration.tilt_home)
@@ -234,8 +228,7 @@ class DirectPca9685Controller(BaseServoController):
 class SimulatedServoController(BaseServoController):
     """Simulation fallback."""
     def trigger_sort(self, cat_key, cfg):
-        target_pan = cfg.get('pan', 90)
-        target_tilt = cfg.get('tilt', 35)
+        target_pan, target_tilt, _ = servo_settings.load_calibration().route(cfg)
         bin_pos = cfg.get('bin_pos', 'Unknown')
         log_info(f"[SIMULATION TRIGGER] Pan {target_pan}° -> Tilt {target_tilt}° ({bin_pos}) -> {cfg['label']}")
 
@@ -605,10 +598,13 @@ def main():
     print(f"   Device Acceleration : {classifier.dev_desc}")
     print(f"   Confidence Cutoff   : {args.threshold * 100:.0f}% | Cooldown: {args.cooldown}s")
     print("   --- 4 Target Bins in 2x2 Grid (Center-Mounted Pan-Tilt) ---")
-    print("   [1] PAPER & CARDBOARD (Blue)   -> FRONT-LEFT  (Pan: 135°, Tilt: 35° Fwd)")
-    print("   [2] PLASTICS & POLY (Orange)   -> FRONT-RIGHT (Pan: 45°,  Tilt: 35° Fwd)")
-    print("   [3] ORGANIC WASTE (Green)      -> REAR-LEFT   (Pan: 45°,  Tilt: 145° Rev)")
-    print("   [4] GLASS & RESIDUAL (Red)     -> REAR-RIGHT  (Pan: 135°, Tilt: 145° Rev)")
+    saved = servo_settings.load_calibration()
+    print(f"   Calibrated HOME: Pan {saved.pan_home}°, Tilt {saved.tilt_home}°")
+    for index, cfg in enumerate(CATEGORY_CONFIG.values(), 1):
+        pan, tilt, _ = saved.route(cfg)
+        print(f"   [{index}] {cfg['label']} -> {cfg['bin_pos']} (Pan {pan}°, Tilt {tilt}°)")
+    if saved.forward_tilt is not None:
+        print("   Asymmetric tilt trial: shallow-side waste delivery must be checked physically.")
     if not is_headless:
         print("   Interactive Hotkeys : [1-4] Test Bins | [C] Recalibrate | [Space] Scan | [H] Help | [Q] Quit")
     else:

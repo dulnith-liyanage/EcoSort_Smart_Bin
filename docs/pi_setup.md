@@ -54,8 +54,8 @@ symbol error and has not been executed during this offline review.
 ## Calibrate first
 
 **Current HOME is tilt 15°, confirmed by the operator, not the old nominal 90°.**
-The sorter rejects the resulting unreachable forward routes before hardware
-initialisation. Read [HOME and horn correction](home_calibration.md) before
+Asymmetric endpoints are 5° forward and 70° backward, with shake disabled.
+Read [HOME and asymmetric calibration](home_calibration.md) before
 running the sorter, full sweeps, or bin tests. Use `servo_control.py
 --check-calibration` for a no-hardware range check. `--tilt-home` commands only
 the saved tilt position; manual angle commands are absolute.

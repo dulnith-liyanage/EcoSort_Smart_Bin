@@ -154,6 +154,13 @@ power switch before using waste. No automatic mechanism clearing is provided.
 
 Map labels onto the baskets; pink/cream basket colours do not identify classes:
 
+The table below contains **nominal logical** angles. The software-only calibration
+now maps logical tilt 35° to physical command 5°, logical 90° to level HOME 15°,
+and logical 145° to physical 70°. Pan remains 45°/135°. Shake is off. This gives
+only 10° of slope on the shallow side: numeric reach does not prove item release.
+See [current calibration](home_calibration.md); do not use the old absolute tilt
+commands or the nominal 25°/155° shake on the current horn mounting.
+
 | Route from the operator's front | Category | Pan / tilt |
 |---|---|---|
 | Front-left | Paper/cardboard | 135° / 35° |

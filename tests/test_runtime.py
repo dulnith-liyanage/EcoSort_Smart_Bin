@@ -41,7 +41,7 @@ class RuntimeTests(unittest.TestCase):
     def test_unreachable_sorting_is_rejected_before_any_output(self):
         with patch.object(servo_settings, 'load_calibration',
                           return_value=servo_settings.Calibration(90, 15)):
-            with self.assertRaisesRegex(ValueError, 'Re-index'):
+            with self.assertRaisesRegex(ValueError, 'outside'):
                 live.DirectPca9685Controller()
             with self.assertRaises(ValueError):
                 live.init_hardware_controller('auto')
@@ -91,6 +91,19 @@ class RuntimeTests(unittest.TestCase):
         self.assertIn((1, 30), self.events)
         self.assertIn((1, 20), self.events)
         self.assertEqual((c.current_pan, c.current_tilt), (95, 85))
+
+    def test_asymmetric_routes_use_both_axes_and_return_to_level(self):
+        saved = servo_settings.Calibration(90,15,5,70,0,0.04)
+        with patch.object(servo_settings, 'load_calibration', return_value=saved):
+            c = live.DirectPca9685Controller()
+        for cfg in live.CATEGORY_CONFIG.values():
+            self.events.clear()
+            c.trigger_sort('test',cfg)
+            expected = 5 if cfg['tilt'] < 90 else 70
+            self.assertIn((0,cfg['pan']),self.events)
+            self.assertIn((1,expected),self.events)
+            self.assertTrue(all(5 <= angle <= 70 for ch,angle in self.events if ch==1))
+            self.assertEqual((c.current_pan,c.current_tilt),(90,15))
 
     def test_startup_emits_home(self):
         live.DirectPca9685Controller()

@@ -1,5 +1,9 @@
 {
   "pan_home": 90,
   "tilt_home": 15,
-  "note": "User reports the current tilt horn is level at 15 degrees. Full bidirectional sorting is blocked until the horn is mechanically re-indexed and HOME is rechecked. Angles are PWM commands, not measured orientation."
+  "forward_tilt": 5,
+  "backward_tilt": 70,
+  "shake_degrees": 0,
+  "step_delay": 0.04,
+  "note": "Software-only asymmetric trial. Operator confirmed level at tilt 15. Forward 5 gives only 10 degrees of slope; reverse 70 gives 55. Shake disabled, one-degree steps at 40 ms. Commands are not measured orientation; verify delivery into every bin with light dummy items."
 }

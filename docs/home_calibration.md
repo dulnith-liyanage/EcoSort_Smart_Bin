@@ -12,26 +12,38 @@ terminal working directory. Both controllers share it. Manual `--pan` and
 `--tilt` remain absolute servo commands. HOME uses the saved physical commands.
 Sorting routes are nominal logical angles relative to logical HOME 90 degrees:
 
-    physical command = logical command + saved HOME - 90
+    Without endpoint overrides: physical command = logical command + HOME - 90
+
+The software-only trial instead uses two explicit endpoints. Logical tilt 35
+maps to physical 5, logical 90 maps to HOME 15, and logical 145 maps to physical
+70. Intermediate logical angles are linearly interpolated on each side of HOME.
+Pan still uses the offset formula. `shake_degrees` is a physical extra excursion
+and is currently zero; no shake is sent. `step_delay` is 0.04 seconds, and both
+controllers move one degree at a time without exceeding this configured speed.
 
 The complete route and extra shake are checked before movement. Invalid angles
 are rejected, never clipped into a different destination. A calibration error
 does not silently fall back to simulation in automatic mode.
 
-## Why four-bin sorting is blocked
+## Why an offset alone did not work
 
 With HOME 15, the old forward tilt 35 becomes -40, and its shake 25 becomes
 -50. The old reverse tilt 145 becomes 70. A servo cannot accept negative
 commands. Keeping the old absolute targets would also be wrong: their angles
 relative to the tray's level position would no longer match the design.
 
-Therefore, level HOME works, but the complete four-bin mechanical route is not
-ready. Do not run a full sweep or force the bracket against its stops.
+The asymmetric override avoids negative commands, so all four configured routes
+now pass the numeric range check. It does not restore the original symmetric
+motion: the shallow pair has only 10 degrees of slope, while the other pair has
+55 degrees. Waste may stick on the shallow side. Confirm actual tray attachment,
+bin directions and delivery with clean light dummy items before relying on it.
+Do not increase travel into a hard stop to compensate for insufficient slope.
 
-## Restore travel on both sides
+## Optional mechanical improvement for symmetric travel
 
-This requires a physical adjustment; software cannot move the servo beyond its
-range. Have an experienced person identify the driven tilt horn and opposite
+The software-only trial does not require this change. To restore the original
+55-degree slope on both sides, a physical adjustment is needed; software cannot
+create travel beyond the servo's range. Have an experienced person identify the driven tilt horn and opposite
 support pivot. Do not confuse their screws or force a powered servo shaft.
 
 1. Stop all control programs. Disconnect Pi and servo power before loosening
@@ -45,7 +57,8 @@ support pivot. Do not confuse their screws or force a powered servo shaft.
 5. Restore power only after securing everything. Check centre with a spirit
    level. Small corrections to the HOME command may be necessary.
 6. Set `tilt_home` in `servo_calibration.json` to the newly observed level command
-   (near 90), and update its note. Do not change it to 90 before actually
+   (near 90), remove the forward/backward endpoint overrides, restore shake only
+   after verifying its clearance, and update the note. Do not change HOME to 90 before actually
    correcting the horn and checking the resulting physical level.
 7. Run the read-only range check below, then test small unloaded movements in
    both directions while watching. Check bracket stops, cables and actual bin
@@ -61,7 +74,8 @@ No movement or hardware access:
 ./venv/bin/python servo_control.py --check-calibration
 ```
 
-Exit code 2 means the current saved configuration cannot reach all routes.
+The current asymmetric trial should pass. Exit code 2 means the selected
+configuration cannot reach all routes; no motors are commanded by this check.
 
 Only with the unloaded mechanism secured and clear, command the saved tilt
 HOME without commanding pan:

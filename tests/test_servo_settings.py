@@ -13,6 +13,28 @@ class CalibrationTests(unittest.TestCase):
     def test_default_preserves_logical_routes(self):
         self.assertEqual(Calibration().route({'pan': 135, 'tilt': 35}), (135, 35, 25))
 
+    def test_asymmetric_endpoints_reach_all_four_routes_without_shake(self):
+        c = Calibration(90, 15, 5, 70, 0, 0.04)
+        for pan, tilt in [(135,35),(45,35),(45,145),(135,145)]:
+            with self.subTest(pan=pan,tilt=tilt):
+                physical = c.route({'pan':pan,'tilt':tilt})
+                expected = 5 if tilt < 90 else 70
+                self.assertEqual(physical,(pan,expected,expected))
+        self.assertEqual(c.tilt(90),15)
+
+    def test_invalid_asymmetric_settings_are_rejected(self):
+        for kwargs in [{'forward_tilt':5},
+                       {'forward_tilt':20,'backward_tilt':70},
+                       {'forward_tilt':5,'backward_tilt':10},
+                       {'shake_degrees':11}, {'step_delay':float('nan')}]:
+            with self.subTest(kwargs=kwargs), self.assertRaises(ValueError):
+                Calibration(90,15,**kwargs)
+
+    def test_shake_cannot_escape_asymmetric_limits(self):
+        c = Calibration(90,15,5,70,10)
+        with self.assertRaises(ValueError):
+            c.route({'pan':135,'tilt':35})
+
     def test_offset_does_not_silently_clip(self):
         with self.assertRaises(ValueError):
             Calibration(90, 15).route({'pan': 135, 'tilt': 35})
