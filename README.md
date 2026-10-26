@@ -25,6 +25,7 @@ project photographs. Bin, case and bracket measurements are still required.
 - [Step-by-step assembly, measurements and shopping list](docs/assembly.md)
 - [Pi setup, wiring, calibration and running](docs/pi_setup.md)
 - [VNC desktop access and motor-free camera preview](docs/vnc_camera.md)
+- [Diagnose power loss during sorting](docs/shutdown_troubleshooting.md)
 - [What was verified without the Raspberry Pi](docs/verification.md)
 - [Separate printable STLs](hardware/design/output/stl/)
 - [Complete FreeCAD assembly](hardware/design/output/complete_assembly.FCStd)
