@@ -154,12 +154,13 @@ power switch before using waste. No automatic mechanism clearing is provided.
 
 Map labels onto the baskets; pink/cream basket colours do not identify classes:
 
-The table below contains **nominal logical** angles. The software-only calibration
-now maps logical tilt 35° to physical command 5°, logical 90° to level HOME 15°,
-and logical 145° to physical 70°. Pan remains 45°/135°. Shake is off. This gives
-only 10° of slope on the shallow side: numeric reach does not prove item release.
-See [current calibration](home_calibration.md); do not use the old absolute tilt
-commands or the nominal 25°/155° shake on the current horn mounting.
+The table below contains **nominal logical** angles. The current calibration
+maps logical tilt 35° to physical command 90°, logical 90° to level HOME 125°,
+and logical 145° to physical 160°. Pan remains 45°/135°. Shake is off.
+Both dump targets are provisional 35° command offsets from level; physical
+clearance and item delivery have not been verified with this new HOME.
+See [current calibration](home_calibration.md). Do not use the previous HOME
+15° or nominal logical angles as absolute servo commands.
 
 | Route from the operator's front | Category | Pan / tilt |
 |---|---|---|
@@ -168,7 +169,7 @@ commands or the nominal 25°/155° shake on the current horn mounting.
 | Rear-left | Organic | 45° / 145° |
 | Rear-right | Glass/metal/residual | 135° / 145° |
 
-The shake extends tilt to 25°/155° (65° from level). Start with an unloaded tray,
+Shake is disabled in the current calibration. Start with an unloaded tray,
 small manual angle changes and confirm direction. The listed angles and 600–2400 µs
 pulse range are inherited starting values, not physical calibration of your servos.
 Keep hands clear; stop power on binding rather than forcing a stalled servo.

@@ -53,9 +53,10 @@ symbol error and has not been executed during this offline review.
 
 ## Calibrate first
 
-**Current HOME is tilt 15°, confirmed by the operator, not the old nominal 90°.**
-Asymmetric endpoints are 5° forward and 70° backward, with shake disabled.
-Read [HOME and asymmetric calibration](home_calibration.md) before
+**Current HOME is tilt 125°, as reported by the operator; pan HOME is 90°.**
+Provisional endpoints are 90° forward and 160° backward, with shake disabled.
+This update has not been tested on the disconnected Pi.
+Read [HOME calibration](home_calibration.md) before
 running the sorter, full sweeps, or bin tests. Use `servo_control.py
 --check-calibration` for a no-hardware range check. `--tilt-home` commands only
 the saved tilt position; manual angle commands are absolute.

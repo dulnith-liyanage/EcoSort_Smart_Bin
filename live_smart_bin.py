@@ -605,7 +605,7 @@ def main():
         pan, tilt, _ = saved.route(cfg)
         print(f"   [{index}] {cfg['label']} -> {cfg['bin_pos']} (Pan {pan}°, Tilt {tilt}°)")
     if saved.forward_tilt is not None:
-        print("   Asymmetric tilt trial: shallow-side waste delivery must be checked physically.")
+        print("   Explicit tilt endpoints: verify clearance and waste delivery physically.")
     if not is_headless:
         print("   Interactive Hotkeys : [1-4] Test Bins | [C] Recalibrate | [Space] Scan | [H] Help | [Q] Quit")
     else:

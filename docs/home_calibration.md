@@ -1,70 +1,70 @@
 # HOME calibration and the tilt horn
 
-## Current observed position
+## Current reported HOME: 125 degrees
 
-On 26 October 2026 the operator confirmed that tilt command 15 degrees makes
-the unloaded tray-mounting plate flat. This is an operator observation, not an
-inclinometer reading. The Pi was moved slowly to that command while the operator
-watched. Pan was not commanded during this adjustment.
+On 26 October 2026 the operator reported that tilt command **125 degrees** is
+horizontal after the previous calibration. Pan HOME remains **90 degrees**.
+The Pi is disconnected: this update is verified in software only. Earlier
+observations at HOME 15 and endpoints 5/70 describe the previous setup and
+must not be reused with the new mounting position.
 
-`servo_calibration.json` is loaded relative to the program location, not the
-terminal working directory. Both controllers share it. Manual `--pan` and
-`--tilt` remain absolute servo commands. HOME uses the saved physical commands.
-Sorting routes are nominal logical angles relative to logical HOME 90 degrees:
+`servo_calibration.json` is loaded relative to the program location. Both
+controllers share it. Manual `--pan` and `--tilt` use absolute servo commands.
+The sorting configurations retain nominal logical targets; explicit endpoints
+map them to the current physical commands:
 
-    Without endpoint overrides: physical command = logical command + HOME - 90
+| Route | Pan command | Tilt command | Offset from level |
+|---|---:|---:|---:|
+| HOME | 90 | 125 | 0 |
+| Front-left / paper | 135 | 90 | -35 |
+| Front-right / plastic | 45 | 90 | -35 |
+| Rear-left / organic | 45 | 160 | +35 |
+| Rear-right / residual | 135 | 160 | +35 |
 
-The software-only trial instead uses two explicit endpoints. Logical tilt 35
-maps to physical 5, logical 90 maps to HOME 15, and logical 145 maps to physical
-70. Intermediate logical angles are linearly interpolated on each side of HOME.
-Pan still uses the offset formula. `shake_degrees` is a physical extra excursion
-and is currently zero; no shake is sent. `step_delay` is 0.04 seconds, and both
-controllers move one degree at a time without exceeding this configured speed.
+Logical tilt 35 maps to command 90, logical 90 to HOME 125, and logical 145
+to command 160. Intermediate values interpolate on each side of HOME.
+These equal 35-degree command offsets are provisional, not measured tray
+inclinations. The original 55-degree slope would require command 180 on one
+side, leaving no command margin. Do not restore the old shake excursion.
+Shake remains zero; movement uses one-degree steps at 40 milliseconds per step.
+Both controllers level before panning, tilt to the route, level again, then
+return pan to centre. The complete route is checked before movement. Invalid
+angles are rejected rather than clipped or silently simulated.
 
-The complete route and extra shake are checked before movement. Invalid angles
-are rejected, never clipped into a different destination. A calibration error
-does not silently fall back to simulation in automatic mode.
+## Reconnect and verify
 
-## Why an offset alone did not work
+1. With servo power off, secure the unloaded assembly and clear cables. Keep
+   the servo power switch accessible. Close competing control programs.
+2. Update the Pi checkout before starting any controller:
 
-With HOME 15, the old forward tilt 35 becomes -40, and its shake 25 becomes
--50. The old reverse tilt 145 becomes 70. A servo cannot accept negative
-commands. Keeping the old absolute targets would also be wrong: their angles
-relative to the tray's level position would no longer match the design.
+   ```sh
+   cd /home/en12/EcoSort_Smart_Bin
+   git pull --ff-only
+   ./venv/bin/python servo_control.py --check-calibration
+   ```
 
-The asymmetric override avoids negative commands, so all four configured routes
-now pass the numeric range check. It does not restore the original symmetric
-motion: the shallow pair has only 10 degrees of slope, while the other pair has
-55 degrees. Waste may stick on the shallow side. Confirm actual tray attachment,
-bin directions and delivery with clean light dummy items before relying on it.
-Do not increase travel into a hard stop to compensate for insufficient slope.
+3. Check that the range report shows HOME pan 90 / tilt 125 and the targets
+   above. It must not show the old HOME 15. Do not start automatic sorting yet.
+4. With hands clear, power the servos and command tilt HOME only:
 
-## Optional mechanical improvement for symmetric travel
+   ```sh
+   ./venv/bin/python servo_control.py --tilt-home
+   ```
 
-The software-only trial does not require this change. To restore the original
-55-degree slope on both sides, a physical adjustment is needed; software cannot
-create travel beyond the servo's range. Have an experienced person identify the driven tilt horn and opposite
-support pivot. Do not confuse their screws or force a powered servo shaft.
+   Verify level. The first command can move abruptly: there is no position
+   feedback. Cached angles are not measured shaft positions.
+5. Test small unloaded tilt commands, for example 123, then 125, then 127,
+   then 125, using `./venv/bin/python servo_control.py --tilt ANGLE` separately.
+   Stop on binding, strong buzzing or cable tension. Increase travel gradually
+   towards 90 and 160 only after observing clearance.
+6. Verify pan directions while level, then each unloaded route. The previous
+   setup's successful route tests do not validate the new horn position.
+7. Test one small clean light item per bin before automatic sorting. Adjust
+   endpoints only from physical observations. If direction is reversed or an
+   item does not slide, recalibrate before using waste.
 
-1. Stop all control programs. Disconnect Pi and servo power before loosening
-   hardware. Remove the tray and support the moving bracket.
-2. Detach the driven tilt horn/linkage from the moving bracket so the servo can
-   be centred without driving the bracket through an unknown arc.
-3. With hands clear and the detached servo supported, centre the unloaded tilt
-   servo at command 90. Do not run HOME from the old calibration (it is 15).
-4. Disconnect power again. Refit the horn/linkage with the tray mounting surface
-   horizontal. Account for spline spacing; do not force parts into alignment.
-5. Restore power only after securing everything. Check centre with a spirit
-   level. Small corrections to the HOME command may be necessary.
-6. Set `tilt_home` in `servo_calibration.json` to the newly observed level command
-   (near 90), remove the forward/backward endpoint overrides, restore shake only
-   after verifying its clearance, and update the note. Do not change HOME to 90 before actually
-   correcting the horn and checking the resulting physical level.
-7. Run the read-only range check below, then test small unloaded movements in
-   both directions while watching. Check bracket stops, cables and actual bin
-   directions before any full dump. Numeric range checks are not collision or
-   torque checks. The nominal full 65-degree shake envelope fits the command
-   range only when tilt HOME is between 65 and 115 degrees.
+The Pi has not received this update while disconnected. Numeric range checks
+prove neither mechanical clearance nor correct delivery.
 
 ## Commands
 
@@ -74,7 +74,7 @@ No movement or hardware access:
 ./venv/bin/python servo_control.py --check-calibration
 ```
 
-The current asymmetric trial should pass. Exit code 2 means the selected
+The current 125-degree HOME configuration should pass. Exit code 2 means the selected
 configuration cannot reach all routes; no motors are commanded by this check.
 
 Only with the unloaded mechanism secured and clear, command the saved tilt

@@ -61,7 +61,14 @@ class CalibrationTests(unittest.TestCase):
 
     def test_actual_checked_in_configuration_is_valid(self):
         c = load_calibration()
-        self.assertTrue(0 <= c.pan_home <= 180 and 0 <= c.tilt_home <= 180)
+        self.assertEqual((c.pan_home, c.tilt_home), (90, 125))
+        self.assertEqual(c.tilt(90), 125)
+        self.assertEqual((c.shake_degrees, c.step_delay), (0, 0.04))
+        for pan, logical_tilt, expected in [(135, 35, 90), (45, 35, 90),
+                                             (45, 145, 160), (135, 145, 160)]:
+            with self.subTest(pan=pan, logical_tilt=logical_tilt):
+                self.assertEqual(c.route({'pan': pan, 'tilt': logical_tilt}),
+                                 (pan, expected, expected))
 
 
 class I2CCompatibilityTests(unittest.TestCase):

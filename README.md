@@ -2,14 +2,14 @@
 
 ## Current physical calibration
 
-The operator confirmed the unloaded mounting plate is level at **tilt command
-15°** on 26 October 2026. `servo_calibration.json` stores this HOME (pan 90°).
-Both control programs use it rather than assuming 90° is horizontal.
-The software-only trial uses asymmetric tilt endpoints: **5° forward and 70°
-backward**, with shake off and one-degree movements at 40 ms per step. This
-avoids negative commands without changing the horn. The forward side is only
-10° from level and may not release waste reliably; verify all four trajectories
-and delivery with light dummy items. See [HOME and asymmetric calibration](docs/home_calibration.md).
+The operator reports a new horizontal position at **tilt command 125°** on
+26 October 2026. `servo_calibration.json` stores this HOME (pan 90°).
+Both control programs share it. Provisional tilt endpoints are **90° forward
+and 160° backward**, equal 35° command offsets from HOME. Shake is off and
+movement uses one-degree steps at 40 ms per step. The Pi was disconnected
+for this update: these routes have only been checked in software. Start with
+small unloaded movements to verify clearance and direction before testing
+item delivery. See [HOME calibration](docs/home_calibration.md).
 `--driver sim` remains available for camera/software checks; it does not prove
 that the physical assembly can reach those routes.
 

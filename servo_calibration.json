@@ -1,9 +1,9 @@
 {
   "pan_home": 90,
-  "tilt_home": 15,
-  "forward_tilt": 5,
-  "backward_tilt": 70,
+  "tilt_home": 125,
+  "forward_tilt": 90,
+  "backward_tilt": 160,
   "shake_degrees": 0,
   "step_delay": 0.04,
-  "note": "Software-only asymmetric trial. Operator confirmed level at tilt 15. Forward 5 gives only 10 degrees of slope; reverse 70 gives 55. Shake disabled, one-degree steps at 40 ms. Commands are not measured orientation; verify delivery into every bin with light dummy items."
+  "note": "Operator reports horizontal at tilt command 125. Pan HOME remains 90. Provisional forward 90 and backward 160 give equal 35-degree command offsets from level. Shake disabled, one-degree steps at 40 ms. Pi disconnected during this update: endpoints, bin directions, clearance and item delivery require physical verification with small unloaded movements first."
 }

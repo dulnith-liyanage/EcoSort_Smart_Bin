@@ -112,6 +112,27 @@ class RuntimeTests(unittest.TestCase):
                 live.init_hardware_controller('auto')
         self.assertEqual(self.events, [])
 
+    def test_new_home_routes_in_both_controllers_return_level_before_pan(self):
+        saved = servo_settings.Calibration(90, 125, 90, 160, 0, 0.04)
+        with patch.object(servo_settings, 'load_calibration', return_value=saved):
+            controllers = [live.DirectPca9685Controller(), calibration.ServoPanTilt()]
+        for controller in controllers:
+            for num, (key, cfg) in enumerate(live.CATEGORY_CONFIG.items(), 1):
+                with self.subTest(controller=type(controller).__name__, route=key):
+                    self.events.clear()
+                    if isinstance(controller, calibration.ServoPanTilt):
+                        controller.dump_bin(str(num))
+                    else:
+                        controller.trigger_sort(key, cfg)
+                    self.assertIn((0, cfg['pan']), self.events)
+                    target = 90 if cfg['tilt'] < 90 else 160
+                    self.assertIn((1, target), self.events)
+                    self.assertTrue(all(90 <= angle <= 160 for ch, angle in self.events if ch == 1))
+                    self.assertEqual((controller.current_pan, controller.current_tilt), (90, 125))
+                    last_tilt = max(i for i, event in enumerate(self.events) if event[0] == 1)
+                    self.assertEqual(self.events[last_tilt], (1, 125))
+                    self.assertGreater(len(self.events) - 1, last_tilt)
+
     def test_startup_emits_home(self):
         live.DirectPca9685Controller()
         self.assertEqual(self.events[-2:], [(1,90),(0,90)])
