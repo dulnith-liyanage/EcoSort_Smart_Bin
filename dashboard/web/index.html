@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#123b30">
+<title>EcoSort · Control room</title>
+<link rel="stylesheet" href="/style.css"><script defer src="/app.js"></script>
+</head>
+<body>
+<svg class="sprite" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><defs>
+<symbol id="i-leaf" viewBox="0 0 24 24"><path d="M20 3c-9-1-17 2-16 10 1 8 13 8 15-2l1-8Z"/><path d="m4 21 11-12M9 16l-1-5m5 1 4 1"/></symbol>
+<symbol id="i-grid" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/></symbol>
+<symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+<symbol id="i-chip" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/><path d="M9 2v4m6-4v4M9 18v4m6-4v4M2 9h4m-4 6h4m12-6h4m-4 6h4"/><rect x="9" y="9" width="6" height="6" rx="1"/></symbol>
+<symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14m-5-5 5 5-5 5"/></symbol>
+<symbol id="i-camera" viewBox="0 0 24 24"><path d="m8 5 2-2h4l2 2h4a1 1 0 0 1 1 1v13H3V6a1 1 0 0 1 1-1h4Z"/><circle cx="12" cy="12" r="4"/></symbol>
+<symbol id="i-pause" viewBox="0 0 24 24"><path d="M8 5v14M16 5v14"/></symbol>
+<symbol id="i-play" viewBox="0 0 24 24"><path d="m8 4 12 8-12 8V4Z"/></symbol>
+<symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v12m-4-4 4 4 4-4M4 16v5h16v-5"/></symbol>
+<symbol id="i-expand" viewBox="0 0 24 24"><path d="M3 9V3h6m6 0h6v6M3 15v6h6m6 0h6v-6"/></symbol>
+<symbol id="i-paper" viewBox="0 0 24 24"><path d="M6 3h9l4 4v14H6V3Zm9 0v5h4M9 12h7m-7 4h5"/></symbol>
+<symbol id="i-bottle" viewBox="0 0 24 24"><path d="M10 3h4v5l3 4v8H7v-8l3-4V3Zm0 3h4M7 14h10"/></symbol>
+<symbol id="i-can" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="6" ry="2"/><path d="M6 5v14c0 3 12 3 12 0V5M6 9c0 3 12 3 12 0M9 13v4"/></symbol>
+<symbol id="i-food" viewBox="0 0 24 24"><path d="M12 7c-9-5-12 9-5 13 2 1 3 0 5 0s3 1 5 0c7-4 4-18-5-13Zm0 0c0-5 3-5 5-5 0 4-2 5-5 5Z"/></symbol>
+<symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol>
+<symbol id="i-alert" viewBox="0 0 24 24"><path d="m12 3 10 18H2L12 3Zm0 6v5m0 3v1"/></symbol>
+<symbol id="i-scan" viewBox="0 0 24 24"><path d="M8 3H3v5m13-5h5v5M3 16v5h5m8 0h5v-5M2 12h20"/></symbol>
+</defs></svg>
+<div class="shell">
+<aside class="sidebar">
+<a class="brand" href="/" aria-label="EcoSort overview"><span class="brand-mark"><svg><use href="#i-leaf"/></svg></span><span>EcoSort<span class="brand-dot">.</span></span></a>
+<div class="sidebar-caption">THE CONTROL ROOM</div>
+<nav aria-label="Main navigation">
+<button class="nav active" data-view="overview" aria-current="page"><svg><use href="#i-grid"/></svg>Overview<span class="nav-indicator"></span></button>
+<button class="nav" data-view="activity"><svg><use href="#i-clock"/></svg>Activity log</button>
+<button class="nav" data-view="system"><svg><use href="#i-chip"/></svg>System & calibration</button>
+</nav>
+<div class="sidebar-bottom"><div class="device-mark"><svg><use href="#i-chip"/></svg><span>Raspberry Pi 5<small id="sidebar-host">Local device</small></span><span class="dot" id="side-dot"></span></div><div class="project-label">EN12 · TERM 1 PROJECT<span>Designed to give waste a better destination.</span></div></div>
+</aside>
+<div class="workspace">
+<header class="topbar"><div class="breadcrumb">Workspace <span>/</span> <strong id="breadcrumb">Overview</strong></div><div class="topbar-right"><span id="connection" class="badge neutral">Connecting</span><span id="clock" class="clock"></span><span class="avatar" title="Team EN12">EN</span></div></header>
+<main>
+<div id="demo-banner" class="banner demo" hidden><strong>Design preview</strong><span>Sample classification only. No Pi, camera or motors connected.</span></div>
+<div id="offline-banner" class="banner warning" hidden>Connection lost. Values below are stale; controls are unavailable until reconnection.</div>
+<div id="power-banner" class="banner warning" hidden></div>
+<section class="page-heading"><div><div class="eyebrow" id="page-eyebrow">LIVE OPERATIONS</div><h1 id="page-title">A clearer view of every sort.</h1><p id="page-description">Watch the tray, understand the decision, follow the route.</p></div><div class="heading-actions"><span class="date-chip" id="today"></span><button class="button secondary" id="export"><svg><use href="#i-download"/></svg>Export log</button></div></section>
+<div id="overview-view" class="view">
+<section class="metrics" aria-label="Session statistics">
+<article class="metric"><span class="metric-label">Today's route cycles<svg><use href="#i-arrow"/></svg></span><div class="metric-number" id="total">0</div><span class="metric-note" id="count-note">Completed commands · not verified delivery</span></article>
+<article class="metric"><span class="metric-label">Latest match score<svg><use href="#i-scan"/></svg></span><div class="metric-number" id="metric-score">—</div><span class="metric-note">Relative model score · not accuracy</span></article>
+<article class="metric"><span class="metric-label">Inference time<svg><use href="#i-clock"/></svg></span><div class="metric-number" id="latency">—</div><span class="metric-note">Latest item · CLIP on the Pi</span></article>
+<article class="metric"><span class="metric-label">Processor temperature<svg><use href="#i-chip"/></svg></span><div class="metric-number" id="temperature">—</div><span class="metric-note" id="temp-note">Waiting for device telemetry</span></article>
+</section>
+<section class="monitor-grid">
+<article class="panel camera-panel"><div class="panel-heading"><div><span class="eyebrow">01 / OBSERVE</span><h2>Tray camera <span class="badge neutral" id="camera-badge">Standby</span></h2></div><div class="icon-actions"><button class="icon-button" id="snapshot" aria-label="Download current camera snapshot" title="Save snapshot"><svg><use href="#i-camera"/></svg></button><button class="icon-button" id="fullscreen" aria-label="Expand camera view" title="Expand camera"><svg><use href="#i-expand"/></svg></button></div></div>
+<div class="camera-stage" id="camera-stage">
+<img id="camera-frame" alt="Live overhead view of the sorting tray" hidden>
+<div class="camera-placeholder" id="camera-placeholder"><div class="tray-illustration"><div class="tray-shadow"></div><div class="tray-base"></div><div class="tray-top"><svg><use href="#i-leaf"/></svg></div><span class="tray-cross"></span></div><strong id="camera-placeholder-title">Your next sort starts here.</strong><span id="camera-placeholder-description">Start a camera session to see the live tray.</span></div>
+<div class="camera-corner left"><span class="live-dot"></span><span id="feed-label">CAMERA V2 · STANDBY</span></div><div class="camera-corner right" id="feed-size">640 × 480</div>
+<div class="scan-box" id="scan-box"><span>SCANNING REGION</span><i></i></div>
+<div class="camera-caption"><span id="frame-status">No camera session</span><button id="overlay-toggle" aria-pressed="true">Hide guides</button></div>
+</div>
+<div class="session-controls"><div class="session-status"><span class="status-ring" id="session-ring"></span><span><strong id="phase-label">Ready when you are</strong><small id="mode-label">Motors inactive</small></span></div><div class="button-group"><button class="button secondary" id="stop-session" hidden>End session</button><button class="button primary" id="start-session"><svg><use href="#i-play"/></svg>Start session</button><button class="button primary" id="pause-resume" hidden><svg><use href="#i-play"/></svg><span>Enable routing</span></button></div></div>
+</article>
+<article class="panel decision-panel"><div class="panel-heading"><div><span class="eyebrow">02 / UNDERSTAND</span><h2>Classification</h2></div><span class="model-chip">CLIP <span class="dot"></span></span></div>
+<div class="prediction"><span class="prediction-kicker">BEST SUPPORTED MATCH</span><div class="prediction-title" id="prediction-title">Waiting for an item</div><div class="prediction-sub" id="prediction-sub">One item at a time, centred on the tray.</div></div>
+<div id="score-bars" class="score-bars"></div>
+<div class="decision-gate"><div><span class="gate-dot" id="gate-dot"></span><strong id="gate-title">Observation only</strong><span class="stable-pill" id="stability">0 / 3 stable</span></div><p id="decision-message">Start a session to receive predictions. Motor controls are off.</p><small class="unsupported-score" id="unsupported-score">Unsupported / background match: —</small><div class="gate-rules"><span>Score ≥ 60%</span><span>Lead ≥ 15 pts</span><span>3 stable frames</span></div></div>
+<div class="decision-actions"><button class="button secondary" id="scan"><svg><use href="#i-scan"/></svg><span>Scan tray</span></button><button class="text-button" id="recalibrate">Reset empty tray</button></div>
+</article></section>
+<section class="section-heading"><div><span class="eyebrow">03 / ROUTE</span><h2>Four materials. Four destinations.</h2></div><span class="muted">Counts reflect commands, not bin fullness</span></section>
+<section class="bin-grid" id="bin-grid" aria-label="Bin routes"></section>
+<section class="panel activity-panel"><div class="panel-heading"><div><h2>Recent activity</h2><p>Every completed route, in one place.</p></div><button class="text-button" data-view="activity">View all activity <span aria-hidden="true">↗</span></button></div><div id="recent-events"></div></section>
+</div>
+<div id="activity-view" class="view" hidden><section class="panel"><div class="panel-heading activity-tools"><div><h2>Route history</h2><p>Stored on this device. Demo, observation and physical sessions stay labelled.</p></div><div class="filters"><label class="sr-only" for="filter">Filter material</label><select id="filter"><option value="all">All materials</option><option value="paper">Paper & cardboard</option><option value="plastic">Rigid plastic</option><option value="metal">Metal cans</option><option value="food">Fruit & veg scraps</option></select><label class="sr-only" for="mode-filter">Filter mode</label><select id="mode-filter"><option value="all">All modes</option><option value="hardware">Physical</option><option value="observe">Observation</option><option value="demo">Demo</option></select></div></div><div id="all-events"></div><p class="table-footnote">Showing the latest 250 records. CSV export includes the latest 10,000. A completed command does not verify that an item reached its bin.</p></section></div>
+<div id="system-view" class="view" hidden><div class="system-grid"><section class="panel"><div class="panel-heading"><div><span class="eyebrow">DEVICE TELEMETRY</span><h2>Under the hood</h2></div><svg class="standalone-icon"><use href="#i-chip"/></svg></div><div id="health-readings" class="detail-list"></div><p class="table-footnote">Read-only telemetry refreshes every 10 seconds. Unavailable measurements are shown as unavailable.</p></section><section class="panel"><div class="panel-heading"><div><span class="eyebrow">SAVED SERVO COMMANDS</span><h2>Calibration & routes</h2></div><span class="badge neutral">Read only</span></div><div id="calibration" class="detail-list"></div><p class="table-footnote">These are commanded angles, not sensor readings. Change calibration through the existing supervised calibration workflow.</p></section></div><section class="panel system-notes"><h2>Built around the actual prototype</h2><div class="note-grid"><div><svg><use href="#i-camera"/></svg><h3>One camera owner</h3><p>The browser shares the classifier's 640 × 480 stream. Close other camera apps before starting a session.</p></div><div><svg><use href="#i-check"/></svg><h3>Decisions you can inspect</h3><p>Four supported labels, an unsupported-item check, score margin and stability checks. Match scores are not measured accuracy.</p></div><div><svg><use href="#i-alert"/></svg><h3>Supervised operation</h3><p>Pause takes effect before the next route. An active route finishes first. This is not an emergency power cutoff.</p></div></div></section></div>
+<footer><span><strong>EcoSort</strong> / EN12</span><span>Local processing. Thoughtful sorting.</span><span id="last-sync">Waiting for connection</span></footer>
+</main></div></div>
+<dialog id="login-dialog"><form id="login-form"><div class="dialog-brand"><svg><use href="#i-leaf"/></svg>EcoSort</div><span class="eyebrow">YOUR LOCAL CONTROL ROOM</span><h2>A better destination<br>starts with a clearer view.</h2><p>Enter the access code printed in the Pi terminal to view the camera and control this dashboard.</p><label for="access-code">Dashboard access code</label><input id="access-code" name="code" type="password" autocomplete="current-password" required minlength="8" placeholder="Access code from the Pi terminal"><p class="form-error" id="login-error" role="alert"></p><button class="button primary" type="submit">Open dashboard <svg><use href="#i-arrow"/></svg></button><small>Use your trusted Wi-Fi network or an SSH tunnel.</small></form></dialog>
+<dialog id="action-dialog"><form id="action-form"><span class="eyebrow" id="dialog-eyebrow">SESSION CONTROL</span><h2 id="dialog-title">Start a camera session</h2><p id="dialog-description"></p><div id="mode-options"><label class="mode-option"><input type="radio" name="session-mode" value="observe" checked><span><strong>Observe & simulate</strong><small>Live camera and model. No physical motor commands.</small></span><span class="badge">Recommended</span></label><label class="mode-option" id="hardware-option"><input type="radio" name="session-mode" value="hardware"><span><strong>Physical hardware</strong><small>Starting commands HOME. Sorting stays paused until enabled.</small></span></label></div><label id="confirm-label" class="confirm-label" hidden><input id="confirm-check" type="checkbox">The tray is unloaded, the assembly secured and all hands and cables clear. The separate servo supply is connected.</label><p id="action-error" class="form-error" role="alert"></p><div class="dialog-actions"><button class="button secondary" type="button" id="cancel-dialog">Cancel</button><button class="button primary" type="submit" id="confirm-action">Start observation</button></div></form></dialog>
+<div id="toast" role="status" hidden></div>
+</body></html>

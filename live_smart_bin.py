@@ -628,7 +628,7 @@ class CameraCapture:
         if self.cap is not None:
             self.cap.release()
 
-def main():
+def main(bridge=None):
     parser = argparse.ArgumentParser(description='EcoSort Smart Bin - 2-Axis Pan-Tilt Waste Segregator (2x2 Grid)')
     parser.add_argument('--driver', type=str, default='auto', choices=['auto', 'rpi-i2c', 'pca9685', 'sim'],
                         help="Hardware servo controller: 'auto' (Raspberry Pi PCA9685 I2C), 'rpi-i2c' (direct Raspberry Pi PCA9685), or 'sim' (simulation)")
@@ -672,9 +672,16 @@ def main():
         except Exception as e:
             parser.error(f"Invalid prompts file: {e}")
 
+    if bridge:
+        bridge.emit('state', phase='loading', paused=True, model=args.model,
+                    message='Loading model. Keep the tray empty for background calibration.')
+
     # Initialize CLIP
     classifier = ClipClassifier(model_name=MODEL_NAMES[args.model], custom_prompts=custom_prompts,
                                 cpu_threads=args.cpu_threads)
+
+    if bridge and bridge.stopping:
+        return
 
     # Initialize Hardware Controller (Direct Raspberry Pi I2C PCA9685 or Simulation)
     controller = init_hardware_controller(
@@ -684,10 +691,17 @@ def main():
     )
 
     # Initialize Camera (Picamera2 CSI or OpenCV USB)
-    cam = CameraCapture(args.camera)
+    try:
+        cam = CameraCapture(args.camera)
+    except Exception:
+        controller.close()
+        raise
     if not cam.is_opened():
         log_error("Could not open camera. Please check camera connection or permissions.")
+        cam.release()
         controller.close()
+        if bridge:
+            bridge.emit('error', message='Camera unavailable. Close other camera applications and check the CSI connection.')
         return
 
     print("\n" + "="*72)
@@ -734,15 +748,35 @@ def main():
 
     try:
         while True:
+            dashboard_actions = bridge.poll() if bridge else []
+            if bridge and bridge.stopping:
+                break
+            if 'recalibrate' in dashboard_actions:
+                background_frame = None
+                frames_read = 0
+                prediction_history = []
+                locked_text = decision_text = None
+                last_probs = {c: 0.0 for c in classifier.categories}
             ret, frame = cam.read()
             if not ret:
                 log_error("Camera frame read failed. Exiting loop.")
+                if bridge:
+                    bridge.emit('error', message='Camera frame read failed. Session stopped.')
                 break
 
             now = time.monotonic()
             fps = 0.9 * fps + 0.1 * (1.0 / max(0.001, now - prev_time))
             prev_time = now
             in_cooldown = (now < cooldown_until)
+
+            if bridge:
+                bridge.frame(frame)
+                phase = ('calibrating' if frames_read < calibration_frames else
+                         'cooldown' if in_cooldown else 'observing' if bridge.paused else 'ready')
+                bridge.emit('state', phase=phase, paused=bridge.paused, fps=round(fps, 1),
+                            scores=last_probs, stable=len(prediction_history),
+                            calibration_progress=min(1.0, frames_read / calibration_frames),
+                            message=locked_text or decision_text or ('Keep the tray empty while calibrating.' if phase == 'calibrating' else 'Place one item in the scanning area.'))
 
             h_f, w_f, _ = frame.shape
 
@@ -785,7 +819,7 @@ def main():
             # Phase 2: Object Motion / Presence Detection
             object_detected = False
             obj_crop = roi
-            force_scan = False
+            force_scan = 'scan' in dashboard_actions
 
             # Check key presses in GUI mode
             if not is_headless:
@@ -856,13 +890,18 @@ def main():
                 pip_preview = eval_img
 
                 # Perform classification
+                inference_started = time.monotonic()
                 pred_cat, conf, probs = classifier.predict(eval_img)
                 last_probs = probs
+                if bridge:
+                    bridge.emit('state', category=pred_cat, score=float(conf), scores=probs,
+                                inference_ms=round((time.monotonic() - inference_started) * 1000))
 
                 if is_headless:
                     print(f"\r[EVAL] Paper: {probs['paper']*100:2.0f}% | Plastic: {probs['plastic']*100:2.0f}% | Metal: {probs['metal']*100:2.0f}% | Food scraps: {probs['food']*100:2.0f}% | Top: {pred_cat} ({conf*100:.0f}%)", end='', flush=True)
 
-                if prediction_is_eligible(pred_cat, probs, args.threshold, args.margin) and locked_text is None:
+                if (prediction_is_eligible(pred_cat, probs, args.threshold, args.margin)
+                        and locked_text is None and (bridge is None or not (bridge.paused or bridge.stopping))):
                     decision_text = f"Best match: {CATEGORY_CONFIG[pred_cat]['label']}; checking stability..."
                     prediction_history.append((pred_cat, conf))
                     if len(prediction_history) > args.stable_frames:
@@ -875,8 +914,16 @@ def main():
                         avg_conf = np.mean([p[1] for p in prediction_history])
                         cfg = CATEGORY_CONFIG[final_cat]
 
+                        # The dashboard pause/stop flag may change during inference.
+                        if bridge and (bridge.paused or bridge.stopping):
+                            prediction_history = []
+                            continue
+                        if bridge:
+                            bridge.emit('state', phase='sorting', message='Executing route; commanded angles are not sensor measurements.')
                         # Trigger Hardware Pan-Tilt Dump
                         controller.trigger_sort(final_cat, cfg)
+                        if bridge:
+                            bridge.emit('sort', category=final_cat, score=float(avg_conf))
                         pan, tilt, _ = saved.route(cfg)
                         route_desc = f"Pan {pan} -> Tilt {tilt} ({cfg['bin_pos']})"
                         log_sort_event(cfg['label'], avg_conf, cfg['cmd'], route_desc)
@@ -889,7 +936,9 @@ def main():
                     prediction_history = []
                     if locked_text is None:
                         label = CATEGORY_CONFIG.get(pred_cat, {}).get('label', 'Unsupported item')
-                        message = f'Best guess: {label}; low confidence, no sort.'
+                        message = (f'Best guess: {label}; observation only, routing paused.'
+                                   if bridge and bridge.paused else
+                                   f'Best guess: {label}; low confidence, no sort.')
                         if decision_text != message:
                             log_info(message)
                         decision_text = message
@@ -935,6 +984,8 @@ def main():
             cv2.destroyAllWindows()
 
         controller.close()
+        if bridge:
+            bridge.emit('state', phase='idle', paused=True, message='Session stopped. Camera released.')
         log_info("EcoSort shutdown complete.")
 
 if __name__ == '__main__':

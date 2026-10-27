@@ -19,6 +19,20 @@ scraps**. Every detected item gets a best-match bin label. Unsupported or ambigu
 guesses require manual removal instead of automatic sorting. The
 PCA9685 drives two MG996R servos in the existing metal pan/tilt kit.
 
+## Web dashboard
+
+A local browser dashboard provides the tray preview, classification scores,
+four-bin command counts, activity export and Pi health. Try the design with:
+
+```sh
+./venv/bin/python -m dashboard --demo
+```
+
+Open http://127.0.0.1:8080 and enter the access code printed in the terminal.
+See [dashboard setup and Pi access](docs/dashboard.md) for live observation and
+explicitly enabled physical sessions. The server does not start motors or the
+camera on launch.
+
 ## Start here
 
 - [Existing hardware assembly and bin labels](docs/assembly.md)
@@ -45,6 +59,7 @@ servo_calibration.json      Level HOME and provisional route commands
 setup_raspberry_pi.sh       Pi dependencies and I2C setup
 fix_openblas.sh             Optional repair for a specific BLAS error
 requirements.txt            Runtime dependencies
+dashboard/                  Local web UI, authenticated API and telemetry bridge
 scripts/                    Launchers, diagnostics, image evaluation and checks
 docs/                       Setup, calibration, classification and verification
 tests/                      Offline software regressions using fake hardware
