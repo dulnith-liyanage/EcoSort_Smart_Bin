@@ -40,11 +40,8 @@ fifth physical bin. This is not a hazardous-waste identification system.
 
 ## Before physical operation
 
-Follow [Pi setup](pi_setup.md), [HOME calibration](home_calibration.md), and
-[power troubleshooting](shutdown_troubleshooting.md). Undervoltage was observed
-on the Pi: resolve the supply/wiring problem before further loaded motor tests.
-Servo power must use its own suitable supply, with shared grounds and separate
-positive rails. Do not use thin breadboard/jumper paths for high servo current.
+Follow [Pi setup](pi_setup.md), [HOME calibration](home_calibration.md), and [power troubleshooting](shutdown_troubleshooting.md). 
 
-Opening VNC or the camera preview does not start sorting. Use simulation for
-recognition tests until power and mechanical checks are complete.
+**Power Configuration (Resolved):** The initial Pi undervoltage issue has been resolved by implementing separate power supplies for the Raspberry Pi 5 and the PCA9685 motor driver. The MG996R servos now draw from a dedicated high-current supply with a shared ground to the Pi, ensuring stable voltage drops during loaded tray movements.
+
+Opening VNC or the camera preview does not start sorting. Use simulation for recognition tests until mechanical clearance checks are complete.
