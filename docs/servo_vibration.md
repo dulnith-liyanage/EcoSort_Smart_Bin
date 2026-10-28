@@ -81,3 +81,28 @@ vibration, and could permit direction drift with a load. Tilt holding is never
 disabled during a dump. These changes reduce the observed problem; they are not
 a verified complete repair. The servo supply voltage/current and mechanical
 load were not measured. Do not claim the remaining vibration is software-fixed.
+
+## Follow-up axis isolation — 28 October 2026
+
+Automatic sorting was stopped and its worker exited before a separate controller
+was opened. The driver responded at 0x40 with prescale 121; Pi firmware power
+flags were 0x0. No competing sorter/controller process was present.
+
+The operator confirmed an empty, clear tray and observed these tests:
+
+- Pan 90 → 135 → 90 with tilt held level at 125: pan rotated and vibrated.
+- Tilt 125 → 100 → 125 with pan released: tilt moved smoothly.
+- Pan 90 → 100 → 90 using single target writes rather than software
+  interpolation: vibration remained. This was only a small diagnostic excursion,
+  not a proposed full-speed sorting profile.
+
+The first pan test was not observed and provides no movement-quality evidence;
+the observed repeat is listed above. Each test returned to HOME with pan
+released and tilt supporting the tray. No permanent motion settings were changed.
+
+These observations identify the pan axis as an observed source of vibration and
+show that software interpolation is not required to reproduce it. They do not
+identify whether the cause is servo feedback/gearing, mount flex/play, cable
+forces or the separate servo supply. A smooth, smaller tilt test does not prove
+all full-range loaded tilt motions are vibration-free. Electrical measurements
+and physical inspection remain necessary; there is no verified software repair.
