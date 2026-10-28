@@ -84,7 +84,7 @@ class CalibrationTests(unittest.TestCase):
         self.assertEqual((c.pan_home, c.tilt_home), (90, 125))
         self.assertEqual(c.tilt(90), 125)
         self.assertEqual((c.shake_degrees, c.step_delay), (0, 0.015))
-        self.assertEqual(c.dump_hold_seconds,0.2)
+        self.assertEqual(c.dump_hold_seconds,1.5)
         self.assertTrue(c.smooth_motion)
         for pan, logical_tilt, expected in [(135, 35, 90), (45, 35, 90),
                                              (45, 145, 160), (135, 145, 160)]:

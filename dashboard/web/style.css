@@ -92,3 +92,25 @@ footer { display: flex; justify-content: space-between; padding: 23px 0; color: 
   .section-title span { max-width: 140px; text-align: right; font-size: 9px; }
 }
 @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
+
+.impact-card { margin-top: 22px; border: 1px solid var(--line); border-radius: 10px; padding: 20px; background: var(--surface); }
+.impact-numbers { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+.impact-numbers strong { display: block; font-size: 29px; font-weight: 550; color: var(--green); }
+.impact-numbers span { color: var(--muted); font-size: 12px; }
+.impact-bar { display: flex; height: 8px; border-radius: 6px; overflow: hidden; background: #435047; margin: 16px 0 12px; }
+#recycle-bar { background: var(--green); } #food-bar { background: var(--orange); }
+.impact-card p { font-size: 11px; }
+#events { max-height: 360px; overflow-y: auto; }
+button.event { width: 100%; color: var(--ink); background: none; border: 0; border-bottom: 1px solid var(--line); text-align: left; min-height: 48px; align-items: center; }
+button.event:hover { background: #233027; }
+dialog { width: min(520px, calc(100% - 24px)); max-height: calc(100dvh - 32px); overflow-y: auto; border: 1px solid var(--line); border-radius: 14px; padding: 0; color: var(--ink); background: var(--surface); }
+dialog::backdrop { background: #000a; }
+.review-heading { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; border-bottom: 1px solid var(--line); }
+.close-button { border: 0; color: var(--ink); background: none; font-size: 28px; width: 44px; height: 44px; }
+.review-content { padding: 20px; }
+#review-image { width: 100%; max-height: 310px; object-fit: contain; background: #101612; border-radius: 8px; margin-bottom: 15px; }
+#review-form { margin-top: 18px; } #review-form label { display: block; font-size: 13px; margin-bottom: 8px; }
+#review-category { width: 100%; font: inherit; padding: 11px; color: var(--ink); background: var(--background); border: 1px solid var(--line); border-radius: 7px; margin-bottom: 14px; }
+#review-status { color: var(--green); margin-top: 12px; font-size: 12px; }
+
+.history-pages { display:flex; justify-content:space-between; gap:16px; }

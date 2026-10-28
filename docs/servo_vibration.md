@@ -131,3 +131,20 @@ existing eased pan motion remains. No further pan-motion improvement is claimed.
 Offline regressions cover all four command sequences, release before tilt,
 retaining tilt support, re-engaging pan only after level return, strict Boolean
 validation and legacy opt-out behaviour. They do not measure physical drift.
+
+
+## Longer dumping pause and HOME cleanup
+
+The dump pause is now 1.5 seconds, requested to allow items more time to leave
+the tray. Pan still releases during the entire tilt excursion; tilt keeps torque.
+The 0.25-second powered pan pause after a route returns HOME was removed;
+initial startup still allows a short settling period after its first HOME command. Repeated no-op HOME calls
+no longer re-enable a pan output that was already released; initial startup
+still commands calibrated HOME. These remove avoidable holding commands rather
+than changing the calibrated positions or attempting to switch off tilt support.
+
+A supervised unloaded front-left test with the longer pause and immediate pan
+release completed, but the operator still reported brief vibration at HOME.
+Therefore this update is **not** a verified complete vibration fix. Residual
+mechanical motion or the still-powered tilt axis has not been separately
+measured. No further automatic pulses or tilt-release workaround was introduced.

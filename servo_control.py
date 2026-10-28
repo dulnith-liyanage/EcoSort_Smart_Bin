@@ -92,6 +92,7 @@ class ServoPanTilt:
         self.current_pan = self.calibration.pan_home
         self.current_tilt = self.calibration.tilt_home
         self._pan_released = False
+        self._home_commanded = False
 
         self._init_hardware()
 
@@ -154,6 +155,8 @@ class ServoPanTilt:
     def set_pan(self, angle, smooth=True, step_delay=None):
         """Sets Pan (Azimuth) angle [0 - 180 deg]."""
         target = int(max(0, min(180, angle)))
+        if self._pan_released and target == self.current_pan:
+            return
         if self._pan_released:
             self.kit.servo[self.pan_ch].angle = self.current_pan
             self._pan_released = False
@@ -192,7 +195,7 @@ class ServoPanTilt:
         if (self.calibration.release_pan_at_home
                 and self.current_pan == self.calibration.pan_home
                 and self.current_tilt == self.calibration.tilt_home):
-            time.sleep(0.25)
+            # Release immediately after the final HOME command; no powered idle dwell.
             self.kit.servo[self.pan_ch].angle = None
             self._pan_released = True
 
@@ -205,8 +208,11 @@ class ServoPanTilt:
         time.sleep(0.1)
         self.set_pan(pan)
         self.kit.servo[self.tilt_ch].angle = tilt
-        self.kit.servo[self.pan_ch].angle = pan
-        self._pan_released = False
+        if not self._pan_released:
+            self.kit.servo[self.pan_ch].angle = pan
+        if not self._home_commanded:
+            time.sleep(0.25)
+        self._home_commanded = True
         self.release_idle_pan()
         log_success("Saved HOME commanded; verify level on the mounting plate.")
 

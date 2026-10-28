@@ -238,6 +238,7 @@ class DirectPca9685Controller(BaseServoController):
 
         self.current_pan = self.calibration.pan_home
         self.current_tilt = self.calibration.tilt_home
+        self._home_commanded = False
         self._pan_released = False
         self.reset_home()
         log_success(f"Direct Raspberry Pi I2C PCA9685 Connected (Pan: Ch{pan_channel}, Tilt: Ch{tilt_channel})")
@@ -255,11 +256,13 @@ class DirectPca9685Controller(BaseServoController):
         if (self.calibration.release_pan_at_home
                 and self.current_pan == self.calibration.pan_home
                 and self.current_tilt == self.calibration.tilt_home):
-            time.sleep(0.25)
+            # Release immediately after the final HOME command; no powered idle dwell.
             self.kit.servo[self.pan_ch].angle = None
             self._pan_released = True
 
     def _smooth_move(self, channel, from_ang, to_ang, step_delay=None):
+        if from_ang == to_ang:
+            return
         if channel == self.pan_ch and self._pan_released:
             self.kit.servo[self.pan_ch].angle = self.current_pan
             self._pan_released = False
@@ -321,10 +324,15 @@ class DirectPca9685Controller(BaseServoController):
         self.current_tilt = self.calibration.tilt_home
         self._smooth_move(self.pan_ch, self.current_pan, self.calibration.pan_home)
         self.current_pan = self.calibration.pan_home
-        # The initial cached angles are not measurements. Always send HOME.
-        self.kit.servo[self.tilt_ch].angle = self.calibration.tilt_home
-        self.kit.servo[self.pan_ch].angle = self.calibration.pan_home
-        self._pan_released = False
+        # Initial cached angles are not measurements: command and settle once.
+        initial_home = not self._home_commanded
+        if initial_home or not self._pan_released:
+            self.kit.servo[self.tilt_ch].angle = self.calibration.tilt_home
+            self.kit.servo[self.pan_ch].angle = self.calibration.pan_home
+            self._pan_released = False
+        self._home_commanded = True
+        if initial_home:
+            time.sleep(0.25)
         self.release_idle_pan()
 
     def close(self):
@@ -980,10 +988,12 @@ def main(bridge=None):
                             continue
                         if bridge:
                             bridge.emit('state', phase='sorting', message='Executing route; commanded angles are not sensor measurements.')
+                        capture = bridge.capture(eval_img) if bridge and hasattr(bridge,'capture') else None
                         # Trigger Hardware Pan-Tilt Dump
                         controller.trigger_sort(final_cat, cfg)
                         if bridge:
-                            bridge.emit('sort', category=final_cat, score=float(avg_conf))
+                            bridge.emit('sort', category=final_cat, score=float(avg_conf),
+                                        capture=capture,model=args.model)
                         pan, tilt, _ = saved.route(cfg)
                         route_desc = f"Pan {pan} -> Tilt {tilt} ({cfg['bin_pos']})"
                         log_sort_event(cfg['label'], avg_conf, cfg['cmd'], route_desc)

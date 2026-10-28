@@ -222,6 +222,28 @@ class RuntimeTests(unittest.TestCase):
         controller.release_pan_for_dump()
         self.assertEqual(self.events,[])
 
+    def test_quiet_home_release_has_no_powered_idle_wait(self):
+        saved=servo_settings.Calibration(90,125,90,160,0,.015,True,True,1.5,True)
+        with patch.object(servo_settings,'load_calibration',return_value=saved):
+            controllers=[live.DirectPca9685Controller(),calibration.ServoPanTilt()]
+        for controller in controllers:
+            self.events.clear()
+            with patch('time.sleep') as wait:controller.release_idle_pan()
+            wait.assert_not_called()
+            self.assertEqual(self.events,[(0,None)])
+
+    def test_repeated_home_does_not_reenable_released_pan(self):
+        saved=servo_settings.Calibration(90,125,90,160,0,.015,True,True,1.5,True)
+        with patch.object(servo_settings,'load_calibration',return_value=saved):
+            controllers=[live.DirectPca9685Controller(),calibration.ServoPanTilt()]
+        for controller in controllers:
+            if isinstance(controller,calibration.ServoPanTilt):controller.go_home()
+            self.events.clear()
+            if isinstance(controller,live.DirectPca9685Controller):controller.reset_home()
+            else:controller.go_home()
+            self.assertFalse(any(ch==0 and angle is not None for ch,angle in self.events))
+            self.assertTrue(controller._pan_released)
+
     def test_manual_tilt_reengages_pan_before_leaving_level(self):
         saved=servo_settings.Calibration(90,125,90,160,0,0.04,True)
         with patch.object(servo_settings,'load_calibration',return_value=saved):

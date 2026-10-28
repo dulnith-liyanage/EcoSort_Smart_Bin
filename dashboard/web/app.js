@@ -10,6 +10,7 @@ const symbols = {
   food:'<path d="M12 7c-9-5-12 9-5 13 2 1 3 0 5 0s3 1 5 0c7-4 4-18-5-13Zm0 0c0-5 3-5 5-5 0 4-2 5-5 5Z"/>'
 };
 const phases = {idle:'Not running',loading:'Starting up',calibrating:'Preparing the tray',ready:'Sorting is on',waiting_clear:'Waiting for an empty tray',observing:'Sorting paused',sorting:'Sorting this item',cooldown:'Returning to ready',stopping:'Finishing the current cycle',error:'Needs attention'};
+let reviewId=null, reviewLoading=false, historyOffset=0;
 let latest, connected=false, pending=false, frameLoading=false, frameAt=null, historyKey='', toastTimer;
 const esc = value => String(value ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const score = value => Number.isFinite(value) ? `${Math.round(value*100)}%` : '—';
@@ -56,18 +57,30 @@ function render(data) {
   $('sample').hidden=!data.demo||!active;$('sample').disabled=pending||!connected;
   $('bins').innerHTML=Object.entries(labels).map(([key,name])=>`<article class="bin${s.category===key?' selected':''}" data-category="${key}"><h3>${name}</h3><strong>${data.counts[key]}</strong></article>`).join('');
   document.querySelectorAll('.bin').forEach(el=>el.style.setProperty('--color',colors[el.dataset.category]));
-  const signature=data.events.slice(0,5).map(e=>e.id).join(',');
-  if(signature!==historyKey||!$('events').childNodes.length){
+  const summary=data.summary;
+  $('recycle-percent').textContent=summary.recyclable_percent===null?'—':`${summary.recyclable_percent}%`;
+  $('food-percent').textContent=summary.non_recyclable_percent===null?'—':`${summary.non_recyclable_percent}%`;
+  $('review-count').textContent=`${summary.reviewed} reviewed today`;
+  $('recycle-bar').style.width=`${summary.recyclable_percent||0}%`;
+  $('food-bar').style.width=`${summary.non_recyclable_percent||0}%`;
+  $('impact-note').textContent=summary.total?`Estimate from ${summary.total} item routes, using reviewed labels where available. Paper/plastic/metal are recycling candidates; food is outside dry recycling. ${summary.other} other/uncertain. ${summary.empty_excluded} empty-tray routes excluded. Actual recycling depends on local rules and contamination.`:'No item routes yet today. Place an item on the tray to begin.';
+  const signature=data.events.slice(0,50).map(e=>`${e.id}:${e.corrected_category}:${e.has_image}`).join(',');
+  if(historyOffset===0&&(signature!==historyKey||!$('events').childNodes.length)){
     historyKey=signature;
-    $('events').innerHTML=data.events.length?data.events.slice(0,5).map(e=>`<div class="event"><strong>${esc(labels[e.category])}</strong><span>${esc(new Date(e.at*1000).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}))} · ${e.mode==='hardware'?'Command completed':'Simulated'}</span></div>`).join(''):'<p>No completed routes yet.</p>';
+    renderEvents(data.events);
   }
   const h=data.health,c=data.calibration;
-  details([['Device',data.hostname],['Temperature',h.temperature===null?'Unavailable':`${h.temperature} °C`],['Memory used',h.memory_percent===null?'Unavailable':`${h.memory_percent}%`],['HOME',c.error||`Pan ${c.pan_home}° / Tilt ${c.tilt_home}°`],['Model',s.model==='siglip2'?'SigLIP 2':'CLIP'],['Inference time',s.inference_ms===null?'—':`${s.inference_ms} ms`],['Power flags',h.throttled?.raw??'Unavailable'],...data.categories.map(r=>[r.name,`Pan ${r.pan??'—'}° / Tilt ${r.tilt??'—'}°`])]);
+  details([['Device',data.hostname],['Temperature',h.temperature===null?'Unavailable':`${h.temperature} °C`],['Memory used',h.memory_percent===null?'Unavailable':`${h.memory_percent}%`],['HOME',c.error||`Pan ${c.pan_home}° / Tilt ${c.tilt_home}°`],['Model',s.model==='siglip2'?'SigLIP 2':'CLIP'],['Inference time',s.inference_ms===null?'—':`${s.inference_ms} ms`],['Dump pause',`${c.dump_hold_seconds} s`],['Power flags',h.throttled?.raw??'Unavailable'],...data.categories.map(r=>[r.name,`Pan ${r.pan??'—'}° / Tilt ${r.tilt??'—'}°`])]);
   const power=h.throttled;
   $('notice').hidden=!(data.demo||power?.undervoltage_now||power?.undervoltage_recorded||s.phase==='error');
   $('notice').textContent=s.phase==='error'?s.message:power?.undervoltage_now?'Low voltage detected. Pause sorting and check the Pi power supply.':power?.undervoltage_recorded?'A low-voltage event was recorded during this boot. Check the Pi supply before extended use.':data.demo?'Design preview. Sample items only; no camera or motors are connected.':'';
   $('updated').textContent=`Updated ${new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}`;
   camera(data);
+}
+function renderEvents(events){
+    $('history-newer').disabled=historyOffset===0;
+    $('history-older').disabled=events.length<50;
+    $('events').innerHTML=events.length?events.map(e=>`<button class="event" data-route="${e.id}"><strong>${esc(labels[e.category])}</strong><span>${esc(new Date(e.at*1000).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}))} · ${e.reviewed_at?'Reviewed':e.has_image?'Review image':'No image'} →</span></button>`).join(''):'<p>No completed routes yet.</p>';
 }
 async function refresh() {
   try{const data=await api('/api/state');connected=true;render(data);}
@@ -90,5 +103,47 @@ $('control').addEventListener('click',()=>{
 });
 $('reset').addEventListener('click',()=>{if(confirm('Remove all items and hands from the tray, then reset its empty reference?'))command('recalibrate');});
 $('sample').addEventListener('click',()=>command('scan'));
+async function historyPage(offset){
+  try{
+    const page=await api(`/api/routes?offset=${offset}`);
+    historyOffset=page.offset;
+    renderEvents(page.events);
+    $('history-older').disabled=page.next_offset===null;
+  }catch(error){toast(error.message);}
+}
+$('history-newer').addEventListener('click',()=>historyPage(Math.max(0,historyOffset-50)));
+$('history-older').addEventListener('click',()=>historyPage(historyOffset+50));
+$('events').addEventListener('click',async event=>{
+  const button=event.target.closest('[data-route]');
+  if(!button||reviewLoading)return;
+  reviewLoading=true;
+  try {
+    const route=await api(`/api/routes/${button.dataset.route}`);
+    reviewId=route.id;
+    $('review-title').textContent=`Review route #${route.id}`;
+    $('review-prediction').textContent=`Predicted: ${labels[route.category]} · ${score(route.score)} match · ${new Date(route.at*1000).toLocaleString()}`;
+    $('review-image').hidden=!route.has_image;
+    $('review-empty').hidden=Boolean(route.has_image);
+    $('review-image').onerror=()=>{$('review-image').hidden=true;$('review-empty').hidden=false;};
+    if(route.has_image)$('review-image').src=`/api/routes/${route.id}/image.jpg`;
+    $('review-form').hidden=!route.has_image;
+    $('review-category').value=route.corrected_category||route.category;
+    $('review-status').textContent=route.reviewed_at?'Saved label: '+($('review-category').selectedOptions[0]?.textContent||route.corrected_category):'';
+    $('review-dialog').showModal();
+  } catch(error){toast(error.message);} finally {reviewLoading=false;}
+});
+$('review-close').addEventListener('click',()=>{$('review-dialog').close();reviewId=null;});
+$('review-form').addEventListener('submit',async event=>{
+  event.preventDefault();
+  if(reviewId===null)return;
+  $('review-save').disabled=true;
+  try {
+    await api(`/api/routes/${reviewId}/review`,{category:$('review-category').value});
+    $('review-status').textContent='Review saved. Thank you—this example is ready for dataset export.';
+    if(historyOffset>0)await historyPage(historyOffset);
+    await refresh();
+  }catch(error){$('review-status').textContent=error.message;}
+  finally{$('review-save').disabled=false;}
+});
 async function poll(){await refresh();setTimeout(poll,1500);}
 poll();

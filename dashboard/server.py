@@ -12,15 +12,15 @@ import os
 from pathlib import Path
 import shutil
 import socket
-import sqlite3
 import subprocess
 import sys
 import tempfile
 import threading
 import time
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, parse_qs
 
 from .bridge import PREFIX
+from .store import EventStore
 import servo_settings
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -31,34 +31,6 @@ CATEGORIES = [
     {'key': 'metal', 'name': 'Metal cans', 'position': 'Rear-left', 'logical_pan': 45, 'logical_tilt': 145},
     {'key': 'food', 'name': 'Fruit & veg scraps', 'position': 'Rear-right', 'logical_pan': 135, 'logical_tilt': 145},
 ]
-
-
-class EventStore:
-    def __init__(self, path):
-        self.path = path
-        with self.connect() as db:
-            db.execute('CREATE TABLE IF NOT EXISTS events (id INTEGER PRIMARY KEY, at REAL NOT NULL, category TEXT NOT NULL, score REAL, mode TEXT NOT NULL, status TEXT NOT NULL)')
-
-    def connect(self):
-        return sqlite3.connect(self.path, timeout=5)
-
-    def add(self, category, score, mode, status='command_completed'):
-        if category not in {c['key'] for c in CATEGORIES}:
-            raise ValueError('Invalid category')
-        with self.connect() as db:
-            db.execute('INSERT INTO events (at,category,score,mode,status) VALUES (?,?,?,?,?)',
-                       (time.time(), category, score, mode, status))
-
-    def rows(self, limit=250):
-        with self.connect() as db:
-            db.row_factory = sqlite3.Row
-            return [dict(row) for row in db.execute('SELECT * FROM events ORDER BY id DESC LIMIT ?', (limit,))]
-
-    def counts(self, mode):
-        midnight = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
-        with self.connect() as db:
-            counts = dict(db.execute('SELECT category,COUNT(*) FROM events WHERE at >= ? AND mode = ? GROUP BY category', (midnight, mode)))
-        return {c['key']: counts.get(c['key'], 0) for c in CATEGORIES}
 
 
 def read_health():
@@ -138,7 +110,8 @@ class Dashboard:
             return {'demo': self.demo, 'hardware_allowed': self.allow_hardware,
                     'mode': self.session_mode, 'state': dict(self.state), 'health': dict(self.health),
                     'calibration': config, 'categories': routes,
-                    'counts': self.store.counts(self.session_mode), 'events': self.store.rows(),
+                    'counts': self.store.counts(self.session_mode), 'events': self.store.rows(limit=50,mode=self.session_mode),
+                    'summary': self.store.summary(self.session_mode),
                     'server_uptime': time.time() - self.started, 'hostname': socket.gethostname(),
                     'settings': {'routing_policy': self.state.get('routing_policy', 'best-match'), 'threshold': 0.60, 'margin': 0.15, 'stable_frames': 3, 'cooldown': 3.8}}
 
@@ -161,7 +134,8 @@ class Dashboard:
                     elif kind == 'frame':
                         self.state['frame_at'] = message['at']
                     elif kind == 'sort':
-                        self.store.add(message['category'], message['score'], mode)
+                        self.store.add(message['category'], message['score'], mode,
+                                       capture=message.get('capture'),model=message.get('model'))
                     elif kind == 'error':
                         error_seen = True
                         self.state.update(phase='error', paused=True, message=message['message'])
@@ -374,12 +348,39 @@ class Handler(BaseHTTPRequestHandler):
             if not frame.exists():
                 return self._send({'error': 'No camera frame available.'}, status=404)
             return self._send(frame.read_bytes(), 'image/jpeg')
+        if path == '/api/routes':
+            try:
+                offset = int(parse_qs(urlsplit(self.path).query).get('offset',['0'])[0])
+                if not 0 <= offset <= 2147483647:
+                    raise ValueError('Invalid offset')
+            except ValueError:
+                return self._send({'error':'Invalid offset'},status=400)
+            events = self.server.app.store.rows(limit=51,mode=self.server.app.session_mode,offset=offset)
+            return self._send({'events':events[:50],'offset':offset,
+                               'next_offset':offset+50 if len(events)>50 else None})
+        if path == '/api/reviews.zip':
+            return self._send(self.server.app.store.export_reviews(), 'application/zip',
+                              extra={'Content-Disposition':'attachment; filename="ecosort-reviewed-images.zip"'})
+        if path.startswith('/api/routes/'):
+            parts = path.split('/')
+            if len(parts) not in (4,5) or (not parts[3].isdigit() or len(parts[3])>10) or (len(parts)==5 and parts[4]!='image.jpg'):
+                return self._send({'error':'Route not found'},status=404)
+            event_id = int(parts[3])
+            try:
+                if len(parts)==4:
+                    return self._send(self.server.app.store.get(event_id))
+                image = self.server.app.store.image_path(event_id)
+                if image is not None:
+                    return self._send(image.read_bytes(),'image/jpeg')
+            except (ValueError,OSError):
+                pass
+            return self._send({'error':'No saved image for this route'},status=404)
         if path == '/api/history.csv':
             output = io.StringIO()
             writer = csv.writer(output)
-            writer.writerow(['Time (local ISO 8601)', 'Category', 'Relative match score', 'Mode', 'Outcome'])
+            writer.writerow(['Time (local ISO 8601)', 'Category', 'Relative match score', 'Mode', 'Outcome', 'Reviewed label', 'Reviewed at (Unix)', 'Has saved image'])
             for row in self.server.app.store.rows(limit=10000):
-                writer.writerow([datetime.fromtimestamp(row['at']).astimezone().isoformat(), row['category'], row['score'], row['mode'], row['status']])
+                writer.writerow([datetime.fromtimestamp(row['at']).astimezone().isoformat(), row['category'], row['score'], row['mode'], row['status'], row['corrected_category'], row['reviewed_at'], row['has_image']])
             return self._send(output.getvalue(), 'text/csv; charset=utf-8', extra={'Content-Disposition': 'attachment; filename="ecosort-history.csv"'})
         return self._send({'error': 'Not found'}, status=404)
 
@@ -401,6 +402,14 @@ class Handler(BaseHTTPRequestHandler):
         except (ValueError, json.JSONDecodeError):
             return self._send({'error': 'Invalid JSON request.'}, status=400)
         path = urlsplit(self.path).path
+        if path.startswith('/api/routes/') and path.endswith('/review'):
+            parts = path.split('/')
+            if len(parts)!=5 or not parts[3].isdigit() or len(parts[3])>10:
+                return self._send({'error':'Invalid route'},status=404)
+            try:
+                return self._send(self.server.app.store.review(int(parts[3]),body.get('category')))
+            except (ValueError,TypeError) as error:
+                return self._send({'error':str(error)},status=400)
         if path == '/api/command':
             try:
                 action = body.get('action')

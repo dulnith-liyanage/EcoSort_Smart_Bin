@@ -67,6 +67,15 @@ class DashboardBridge:
         self.output.write(PREFIX + json.dumps({'kind': kind, **values}, allow_nan=False) + '\n')
         self.output.flush()
 
+    def capture(self, image):
+        """Snapshot the classifier crop BEFORE the motors move, not the live preview."""
+        import base64
+        import cv2
+        ok, encoded = cv2.imencode('.jpg', image, [cv2.IMWRITE_JPEG_QUALITY, 85])
+        if not ok:
+            return None
+        return {'jpeg':base64.b64encode(encoded.tobytes()).decode('ascii'),'at':time.time()}
+
     def frame(self, frame):
         now = time.monotonic()
         if now - self.last_frame < 0.5:

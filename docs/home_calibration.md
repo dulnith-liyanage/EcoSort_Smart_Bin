@@ -27,7 +27,7 @@ These equal 35-degree command offsets are provisional, not measured tray
 inclinations. The original 55-degree slope would require command 180 on one
 side, leaving no command margin. Do not restore the old shake excursion.
 Shake remains zero. The 28 October timing update uses eased motion with a
-peak command limit of about 67 degrees/second and a 0.2-second dump pause.
+peak command limit of about 67 degrees/second and a 1.5-second dump pause.
 The operator observed less vibration in an unloaded trial; loaded release
 with this shorter timing still needs checking.
 Both controllers level before panning, tilt to the route, level again, then

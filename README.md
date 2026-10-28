@@ -10,9 +10,10 @@ An unloaded front-left test showed reduced tipping vibration without visible
 direction drift; loaded alignment with pan released remains unverified.
 
 Sorting now uses continuous eased motion with a configured peak limit of about
-67°/s (`step_delay: 0.015`) and a 0.2-second dump pause. In a supervised empty-tray
+67°/s (`step_delay: 0.015`) and a 1.5-second dump pause. In a supervised empty-tray
 test on 28 October the operator reported reduced, but not eliminated, vibration.
-Loaded delivery with the shorter pause still needs checking. See
+The longer dumping pause and immediate pan release at HOME still need loaded checks;
+the operator reported brief HOME vibration remains. See
 [HOME calibration](docs/home_calibration.md) and
 [vibration observations](docs/servo_vibration.md).
 `--driver sim` remains available for camera/software checks; it does not prove
@@ -28,7 +29,9 @@ PCA9685 drives two MG996R servos in the existing metal pan/tilt kit.
 ## Web dashboard
 
 The simple browser screen shows the tray camera, current classification, four
-bin counters and a pause/resume button. History and device details expand only
+bin counters, estimated recyclable/compostable percentages and a pause/resume button.
+Click a recent route to review its saved camera crop, confirm/correct the label
+and export reviewed images for future training. Reviews do not change the model. History and device details expand only
 when needed. No access code or Pi display is required on your trusted Wi-Fi.
 
 ```sh
@@ -48,6 +51,7 @@ See [dashboard access and boot setup](docs/dashboard.md).
 
 - [Existing hardware assembly and bin labels](docs/assembly.md)
 - [Classification, prompt groups and image evaluation](docs/classification.md)
+- [Image review, recycling estimates and future training](docs/image_reviews.md)
 - [Pi setup, wiring, calibration and running](docs/pi_setup.md)
 - [VNC desktop access and motor-free camera preview](docs/vnc_camera.md)
 - [Diagnose power loss during sorting](docs/shutdown_troubleshooting.md)

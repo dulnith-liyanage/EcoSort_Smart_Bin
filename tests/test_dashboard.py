@@ -53,6 +53,31 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(self.request('/api/frame.jpg')[0], 404)
         self.assertEqual(self.request('/api/login', 'POST', {'code':'anything'})[0], 404)
 
+    def test_route_review_api_and_image_export(self):
+        from test_review_store import capture
+        event=self.app.store.add('paper',.4,'hardware',capture=capture())
+        self.assertEqual(self.request(f'/api/routes/{event}/image.jpg')[0],200)
+        status,_,data=self.request(f'/api/routes/{event}/review','POST',{'category':'plastic'})
+        self.assertEqual(status,200)
+        self.assertEqual(json.loads(data)['corrected_category'],'plastic')
+        self.assertEqual(self.request('/api/reviews.zip')[0],200)
+        self.assertEqual(self.request('/api/routes/999/image.jpg')[0],404)
+        self.assertEqual(self.request('/api/routes/../image.jpg')[0],404)
+        self.assertEqual(self.request(f'/api/routes/{event}/review','POST',{'category':'bad'})[0],400)
+        self.assertEqual(self.request(f'/api/routes/{event}/review','POST',{'category':'metal'},custom=False)[0],403)
+
+    def test_route_history_paginates_without_losing_older_reviews(self):
+        for _ in range(52):self.app.store.add('paper',.7,'demo')
+        _,_,data=self.request('/api/routes')
+        page=json.loads(data)
+        self.assertEqual(len(page['events']),50)
+        self.assertEqual(page['next_offset'],50)
+        _,_,data=self.request('/api/routes?offset=50')
+        self.assertEqual(len(json.loads(data)['events']),2)
+        self.assertIsNone(json.loads(data)['next_offset'])
+        self.assertEqual(self.request('/api/routes?offset=-1')[0],400)
+        self.assertEqual(self.request('/api/routes/9999999999999999999999999')[0],404)
+
     def test_public_clients_and_unknown_hostnames_are_rejected(self):
         self.assertEqual(self.request('/api/state', peer='8.8.8.8')[0], 403)
         self.assertEqual(self.request('/api/state', host='evil.example:8080')[0], 403)
@@ -231,7 +256,9 @@ class BridgeTests(unittest.TestCase):
         scores={'paper':.9,'plastic':.025,'metal':.025,'food':.025,'unknown':.025}
         classifier=SimpleNamespace(categories=list(scores),dev_desc='FAKE',predict=Mock(return_value=('paper',.9,scores)))
         controller=SimpleNamespace(trigger_sort=Mock(),close=Mock(),status_str='SIMULATION')
-        bridge=SimpleNamespace(paused=paused,stopping=False,poll=lambda:[],emit=Mock(),frame=Mock(),calibrated=Mock(),warmup_frames=warmup)
+        order=[]
+        controller.trigger_sort.side_effect=lambda *args:order.append('motor')
+        bridge=SimpleNamespace(capture=Mock(side_effect=lambda image:order.append('capture') or None),paused=paused,stopping=False,poll=lambda:[],emit=Mock(),frame=Mock(),calibrated=Mock(),warmup_frames=warmup)
         if auto_start:
             def calibrated():
                 self.assertEqual(camera.read.call_count,30+warmup)
@@ -248,6 +275,7 @@ class BridgeTests(unittest.TestCase):
             controller.trigger_sort.assert_not_called()
         else:
             controller.trigger_sort.assert_called_once()
+            self.assertEqual(order,['capture','motor'])
         camera.release.assert_called_once()
         controller.close.assert_called_once()
         self.assertEqual(any(c.args[0]=='sort' for c in bridge.emit.call_args_list), not paused or auto_start)
