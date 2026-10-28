@@ -106,3 +106,28 @@ identify whether the cause is servo feedback/gearing, mount flex/play, cable
 forces or the separate servo supply. A smooth, smaller tilt test does not prove
 all full-range loaded tilt motions are vibration-free. Electrical measurements
 and physical inspection remain necessary; there is no verified software repair.
+
+
+## Current update: pan release throughout tipping
+
+A later supervised unloaded front-left route released pan after alignment,
+kept tilt powered through 125 → 90 → 125, then re-engaged pan before returning
+to 90. The operator reported **less vibration and no visible direction drift**.
+This differs from the earlier test that released pan only during the tilted
+pause. It is a partial improvement, not a complete vibration repair.
+
+`release_pan_during_dump: true` now enables that sequence in both controllers.
+The field defaults to false for older calibration files. Release occurs only
+with tilt level; normal manual tilt still re-engages pan. Tilt is never released.
+Pan's last commanded heading is assumed when re-engaging because no position
+sensor is available. Cable forces or an off-centre load may rotate released pan;
+loaded alignment and all other routes need physical checks. Set the option to
+false if direction drifts. The tray must level before pan returns HOME.
+
+A separate pan-only test doubled `step_delay` from 0.015 to 0.03. The operator
+reported it remained just as jerky, so the slower speed was not kept. The
+existing eased pan motion remains. No further pan-motion improvement is claimed.
+
+Offline regressions cover all four command sequences, release before tilt,
+retaining tilt support, re-engaging pan only after level return, strict Boolean
+validation and legacy opt-out behaviour. They do not measure physical drift.

@@ -179,6 +179,14 @@ class ServoPanTilt:
         self.current_tilt = target
         log_info(f"Tilt -> {self.current_tilt}°")
 
+    def release_pan_for_dump(self):
+        """Opt-in pan release at a bin; tilt must be level and stays powered."""
+        if (self.calibration.release_pan_during_dump
+                and self.current_tilt == self.calibration.tilt_home):
+            time.sleep(0.2)
+            self.kit.servo[self.pan_ch].angle = None
+            self._pan_released = True
+
     def release_idle_pan(self):
         """Release only pan when both axes have returned to calibrated HOME."""
         if (self.calibration.release_pan_at_home
@@ -201,6 +209,14 @@ class ServoPanTilt:
         self._pan_released = False
         self.release_idle_pan()
         log_success("Saved HOME commanded; verify level on the mounting plate.")
+
+    def _set_dump_tilt(self, angle):
+        # A route may leave pan released; ordinary manual tilt still re-engages it.
+        if self.calibration.release_pan_during_dump and self._pan_released:
+            self.smooth_move(self.tilt_ch, self.current_tilt, angle)
+            self.current_tilt = angle
+        else:
+            self.set_tilt(angle)
 
     def dump_bin(self, bin_num):
         """Executes full sorting cycle for 2x2 grid:
@@ -228,21 +244,23 @@ class ServoPanTilt:
         if not self.calibration.smooth_motion:
             time.sleep(0.2)
 
+        self.release_pan_for_dump()
+
         # Step 2: Tilt tray to dump angle
         log_info(f"2. Tilting to {tilt}° ({b['mode']}) to dump waste...")
-        self.set_tilt(tilt)
+        self._set_dump_tilt(tilt)
         time.sleep(self.calibration.dump_hold_seconds)
 
         if shake != tilt:
             log_info("3. Calibrated shake...")
-            self.set_tilt(shake)
+            self._set_dump_tilt(shake)
             time.sleep(0.12)
-            self.set_tilt(tilt)
+            self._set_dump_tilt(tilt)
             time.sleep(0.20)
 
         # Step 4: Return to calibrated level position.
         log_info(f"4. Returning tilt to calibrated HOME {self.calibration.tilt_home}°...")
-        self.set_tilt(self.calibration.tilt_home)
+        self._set_dump_tilt(self.calibration.tilt_home)
         if not self.calibration.smooth_motion:
             time.sleep(0.2)
 

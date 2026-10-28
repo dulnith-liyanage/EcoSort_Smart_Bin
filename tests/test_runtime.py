@@ -188,6 +188,40 @@ class RuntimeTests(unittest.TestCase):
             self.assertLessEqual(stationary_delays,.600001)
             self.assertEqual((controller.current_pan,controller.current_tilt),(90,125))
 
+    def test_pan_release_covers_dump_and_level_return_without_disabling_tilt(self):
+        saved=servo_settings.Calibration(90,125,90,160,0,.015,True,True,.2,True)
+        with patch.object(servo_settings,'load_calibration',return_value=saved):
+            controllers=[live.DirectPca9685Controller(),calibration.ServoPanTilt()]
+        for controller in controllers:
+            if isinstance(controller,calibration.ServoPanTilt):controller.go_home()
+            for number,(key,cfg) in enumerate(live.CATEGORY_CONFIG.items(),1):
+                self.events.clear()
+                if isinstance(controller,live.DirectPca9685Controller):controller.trigger_sort(key,cfg)
+                else:controller.dump_bin(number)
+                off=[i for i,event in enumerate(self.events) if event==(0,None)]
+                self.assertEqual(len(off),2)
+                release=off[0]
+                self.assertEqual(self.events[release-1],(0,cfg['pan']))
+                reengage=next(i for i in range(release+1,len(self.events)) if self.events[i][0]==0)
+                segment=self.events[release+1:reengage]
+                self.assertIn((1,saved.tilt(cfg['tilt'])),segment)
+                self.assertEqual(segment[-1],(1,125))
+                self.assertTrue(all(ch==1 and angle is not None for ch,angle in segment))
+                self.assertEqual(self.events[reengage],(0,cfg['pan']))
+                self.assertEqual(self.events[-1],(0,None))
+                self.assertEqual((controller.current_pan,controller.current_tilt),(90,125))
+
+    def test_dump_release_is_opt_in_and_refuses_a_tilted_tray(self):
+        controller=live.DirectPca9685Controller()
+        self.events.clear()
+        controller.release_pan_for_dump()
+        self.assertEqual(self.events,[])
+        from dataclasses import replace
+        controller.calibration=replace(controller.calibration,release_pan_during_dump=True)
+        controller.current_tilt=120
+        controller.release_pan_for_dump()
+        self.assertEqual(self.events,[])
+
     def test_manual_tilt_reengages_pan_before_leaving_level(self):
         saved=servo_settings.Calibration(90,125,90,160,0,0.04,True)
         with patch.object(servo_settings,'load_calibration',return_value=saved):

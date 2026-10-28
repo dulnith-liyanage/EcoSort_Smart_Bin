@@ -5,8 +5,9 @@
   "backward_tilt": 160,
   "shake_degrees": 0,
   "step_delay": 0.015,
-  "note": "HOME pan 90 / tilt 125; dump endpoints 90 / 160; shake off. Pan releases only at HOME while tilt keeps supporting the tray. Operator reported the continuous faster test with a 0.2-second dump pause reduced, but did not eliminate, sorting vibration on 28 October 2026. Loaded delivery with this timing needs checking.",
+  "note": "HOME pan 90 / tilt 125; dump endpoints 90 / 160; shake off. Pan releases at HOME and after bin alignment throughout tilt and level return; tilt remains powered. Operator observed reduced vibration and no visible yaw drift on one unloaded front-left route. Pan-only motion still vibrates; slower pan timing did not help and was not kept. Loaded alignment and other routes with pan released remain unverified.",
   "release_pan_at_home": true,
   "smooth_motion": true,
-  "dump_hold_seconds": 0.2
+  "dump_hold_seconds": 0.2,
+  "release_pan_during_dump": true
 }

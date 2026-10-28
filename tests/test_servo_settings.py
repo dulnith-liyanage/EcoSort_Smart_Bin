@@ -17,6 +17,12 @@ class CalibrationTests(unittest.TestCase):
                 Calibration(release_pan_at_home=value)
         self.assertTrue(load_calibration().release_pan_at_home)
 
+    def test_dump_pan_release_is_opt_in_and_boolean(self):
+        self.assertFalse(Calibration().release_pan_during_dump)
+        for value in [None,1,'true']:
+            with self.assertRaises(ValueError):Calibration(release_pan_during_dump=value)
+        self.assertTrue(load_calibration().release_pan_during_dump)
+
     def test_dump_pause_is_bounded_and_legacy_default_is_preserved(self):
         self.assertEqual(Calibration().dump_hold_seconds,1.0)
         for value in [0,.09,3,float('nan'),True,'0.2']:

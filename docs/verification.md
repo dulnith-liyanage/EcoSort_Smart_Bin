@@ -18,7 +18,7 @@ PYTHONDONTWRITEBYTECODE=1 HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 ./venv/bin/pyt
 ./venv/bin/python scripts/evaluate_classifier.py --help
 ```
 
-The current Mac suite has **80 passing tests**, plus Python and shell syntax
+The current Mac suite has **83 passing tests**, plus Python and shell syntax
 checks. No camera, servo commands or model downloads are used by these checks.
 3D-print/CAD files and their dedicated geometry tests have been removed because
 the physical project no longer uses printed components.
@@ -80,4 +80,6 @@ brief pan release while tilted did not remove it. A second unloaded front-left
 trial with faster continuous easing and a 0.2-second tip pause reduced, but did
 not eliminate, vibration. This second timing is configured; loaded delivery
 is not established by that empty-tray observation. Tilt remains powered and
-pan releases only at HOME. See [the diagnosis](servo_vibration.md).
+pan releases at HOME and, with the new opt-in dump setting, during tipping.
+The new dump release has only one operator-observed unloaded route test; loaded
+alignment and the remaining routes need physical validation. See [the diagnosis](servo_vibration.md).

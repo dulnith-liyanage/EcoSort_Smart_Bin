@@ -4,8 +4,10 @@
 
 The level HOME is **pan 90° / tilt 125°**, saved in
 `servo_calibration.json` and shared by both controllers. Dump endpoints remain
-**90° forward and 160° backward**. Shake is off. Pan releases only at HOME;
-tilt continues supporting the tray.
+**90° forward and 160° backward**. Shake is off. Pan releases at HOME and,
+after alignment, throughout the dump and return to level. Tilt remains powered.
+An unloaded front-left test showed reduced tipping vibration without visible
+direction drift; loaded alignment with pan released remains unverified.
 
 Sorting now uses continuous eased motion with a configured peak limit of about
 67°/s (`step_delay: 0.015`) and a 0.2-second dump pause. In a supervised empty-tray
@@ -38,8 +40,8 @@ Open http://127.0.0.1:8080. For the Pi, the prepared systemd installer enables t
 website and physical sorter on boot after the initial empty-tray calibration.
 Installed and reboot-tested on the Pi on 28 October 2026. Use
 http://ecosort.local:8080 on the same trusted Wi-Fi. Pan releases its holding
-signal at HOME to avoid the operator-confirmed idle vibration; tilt still holds
-the tray level.
+signal at HOME and during tipping to reduce observed holding vibration; tilt
+continues supporting the tray. Pan is re-engaged only after the tray is level.
 See [dashboard access and boot setup](docs/dashboard.md).
 
 ## Start here

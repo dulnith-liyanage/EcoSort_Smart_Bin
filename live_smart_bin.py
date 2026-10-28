@@ -242,6 +242,14 @@ class DirectPca9685Controller(BaseServoController):
         self.reset_home()
         log_success(f"Direct Raspberry Pi I2C PCA9685 Connected (Pan: Ch{pan_channel}, Tilt: Ch{tilt_channel})")
 
+    def release_pan_for_dump(self):
+        """Opt-in pan release at a bin; tilt must be level and stays powered."""
+        if (self.calibration.release_pan_during_dump
+                and self.current_tilt == self.calibration.tilt_home):
+            time.sleep(0.2)
+            self.kit.servo[self.pan_ch].angle = None
+            self._pan_released = True
+
     def release_idle_pan(self):
         """Quiet the verified unloaded vertical pan axis; always retain tilt torque."""
         if (self.calibration.release_pan_at_home
@@ -279,6 +287,8 @@ class DirectPca9685Controller(BaseServoController):
         self.current_pan = target_pan
         if not self.calibration.smooth_motion:
             time.sleep(0.20)
+
+        self.release_pan_for_dump()
 
         # Step 2: Tilt downward along pan (forward 35° or backward 145°)
         log_info(f"[RPi I2C PCA9685] Tilting tray to {target_tilt}° to drop waste into {bin_pos}...")
