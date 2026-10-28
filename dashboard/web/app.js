@@ -1,7 +1,7 @@
 'use strict';
 const $ = id => document.getElementById(id);
 const labels = {paper:'Paper & cardboard',plastic:'Rigid plastic',metal:'Metal cans',food:'Fruit & veg scraps'};
-const colors = {paper:'#2b64b5',plastic:'#bf681f',metal:'#20815d',food:'#b94942'};
+const colors = {paper:'#86b7ff',plastic:'#f2b16d',metal:'#87cba5',food:'#f0948c'};
 const positions = {paper:'Front-left',plastic:'Front-right',metal:'Rear-left',food:'Rear-right'};
 const symbols = {
   paper:'<path d="M6 3h9l4 4v14H6V3Zm9 0v5h4M9 12h7m-7 4h5"/>',
@@ -43,7 +43,7 @@ function render(data) {
   $('category').textContent=labels[s.category]||'Waiting for an item';
   $('prediction').textContent=s.category?`${positions[s.category]} · ${score(s.score)} match score`:'One item at a time, in the centre of the tray.';
   $('material-icon').innerHTML=s.category&&symbols[s.category]?`<svg viewBox="0 0 24 24">${symbols[s.category]}</svg>`:'—';
-  $('material-icon').style.color=colors[s.category]||'#8aa079';
+  $('material-icon').style.color=colors[s.category]||'#a4c6aa';
   $('status-label').textContent=phases[s.phase]||s.phase;
   $('message').textContent=s.phase==='calibrating'?(s.auto_sort?'Keep the tray empty for a moment. Sorting starts after calibration.':'Keep the tray empty for a moment. Sorting will remain paused.'):s.phase==='loading'?'The website is ready. The camera and model are starting.':s.phase==='observing'?'The camera and classifier are still running.':s.phase==='sorting'?'Moving the tray towards the selected bin.':s.phase==='cooldown'?'Route completed. Waiting for the tray to clear.':s.phase==='ready'&&!data.demo?(s.message.includes('low confidence')?'Reposition the item for a clearer view.':s.category?'Checking the item…':'Place one item on the tray.'):s.message;
   $('control').textContent=starting?'Pause after startup':s.phase==='stopping'?'Finishing…':!active?'Start sorting':s.paused?'Resume sorting':'Pause sorting';
