@@ -90,12 +90,7 @@ failure now stops startup; `auto` may fall back to simulation and reports it.
 `--driver sim` still opens a real camera and loads CLIP; it is not the offline
 unit test mode.
 
-Keep the tray empty for its first 30 frames. Centre it in the scanning square;
-press **C** to recalibrate the empty view after moving the camera or tray. Place
-one small item, withdraw hands, and wait. Keys **1–4** manually sort; **Space**
-requests a scan but retains score, margin and stability checks. **Q** exits. Default relative-score threshold is 0.60, top-two margin 0.15, stable predictions
-3 and cooldown 3.8 seconds after completed movement. A probability is a relative
-score among these four prompts, not a calibrated accuracy or hazard detector.
+Leave the tray clear for the initial 30 frames. Align it within the scanning grid; hit C to reset the baseline view whenever the camera or tray shifts. Insert a single small object, pull your hands back, and pause. Numbers 1–4 handle manual sorting; the Spacebar triggers a scan while keeping the score, margin, and stability validations active. Q quits the session. The standard relative-score limit is set to 0.60, with a top-two margin of 0.15, 3 required stable predictions, and a 3.8-second cooldown following any finished motion. Note that a probability simply represents a relative score across these four categories, rather than a calibrated measure of accuracy or a hazard alarm.
 
 Test an empty tray, representative paper/plastic/metal/fruit-and-vegetable items, changing
 light and false positives before enabling unattended operation. These checks
