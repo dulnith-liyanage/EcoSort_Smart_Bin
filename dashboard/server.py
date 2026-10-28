@@ -140,7 +140,7 @@ class Dashboard:
                     'calibration': config, 'categories': routes,
                     'counts': self.store.counts(self.session_mode), 'events': self.store.rows(),
                     'server_uptime': time.time() - self.started, 'hostname': socket.gethostname(),
-                    'settings': {'threshold': 0.60, 'margin': 0.15, 'stable_frames': 3, 'cooldown': 3.8}}
+                    'settings': {'routing_policy': self.state.get('routing_policy', 'best-match'), 'threshold': 0.60, 'margin': 0.15, 'stable_frames': 3, 'cooldown': 3.8}}
 
     def _reader(self, process, mode=None):
         error_seen = False

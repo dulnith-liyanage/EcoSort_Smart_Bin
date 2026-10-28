@@ -18,8 +18,9 @@ that the physical assembly can reach those routes.
 
 Camera V2 observes a stationary tray. CLIP selects among four supported classes:
 **paper/cardboard, rigid plastic containers, metal cans, and fruit/vegetable
-scraps**. Every detected item gets a best-match bin label. Unsupported or ambiguous
-guesses require manual removal instead of automatic sorting. The
+scraps**. Every detected item is sorted into the bin with the highest average score over
+three frames, including low-confidence items. This does not guarantee correct
+classification. The tray must clear between items to prevent repeated dumps. The
 PCA9685 drives two MG996R servos in the existing metal pan/tilt kit.
 
 ## Web dashboard

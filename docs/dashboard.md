@@ -21,12 +21,14 @@ No framework build, cloud account, VNC, terminal code or browser login is needed
    If the hostname differs, use `http://<hostname>.local:8080`. Where mDNS does
    not work, use the Pi's IP address from your router's device list. A router
    DHCP reservation can keep that address stable.
-5. Place one supported item on the tray. Recognition, score/margin/stability
-   checks and the existing calibrated routes run automatically. Closing the
+5. Place one item on the tray. The best of four bins is chosen from three
+   frames regardless of confidence, and the existing calibrated route runs
+   automatically. Clear the tray between items. Closing the
    browser does not stop sorting. No manual SSH command is needed each boot.
 
 The existing HOME remains pan 90° / tilt 125°, with tilt endpoints 90° / 160°.
-No servo calibration or classification threshold was changed for this work.
+The default best-match routing policy ignores confidence and margin gates.
+Use `--routing-policy confident` in the CLI to restore conservative rejection.
 **Pause sorting** blocks the next cycle, leaving classification and the camera
 running. An in-flight route finishes first. It is not an emergency power cutoff.
 After pausing, **Reset empty tray** relearns only the camera background; remove

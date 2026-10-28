@@ -81,7 +81,7 @@ class ClassificationTests(unittest.TestCase):
                             ('paper', {'paper': float('nan'), 'plastic': .1})]:
             self.assertFalse(live.prediction_is_eligible(cat, scores))
 
-    def run_sequence(self, predictions, space=False):
+    def run_sequence(self, predictions, space=False, policy="confident"):
         empty = np.zeros((480, 640, 3), dtype=np.uint8)
         occupied = np.full_like(empty, 255)
         camera = SimpleNamespace(read=Mock(side_effect=[(True, empty.copy()) for _ in range(30)] +
@@ -95,7 +95,7 @@ class ClassificationTests(unittest.TestCase):
              patch.object(live, 'init_hardware_controller', return_value=controller), \
              patch.object(live.cv2, 'imshow'), patch.object(live.cv2, 'destroyAllWindows'), \
              patch.object(live.cv2, 'waitKey', return_value=ord(' ') if space else 0), \
-             patch.object(sys, 'argv', ['live_smart_bin.py', '--driver', 'sim']), \
+             patch.object(sys, 'argv', ['live_smart_bin.py', '--driver', 'sim', '--routing-policy', policy]), \
              patch.dict('os.environ', {'DISPLAY': ':test'}), \
              contextlib.redirect_stdout(io.StringIO()):
             live.main()
@@ -112,3 +112,21 @@ class ClassificationTests(unittest.TestCase):
         self.run_sequence([good, good, bad, good, good]).trigger_sort.assert_not_called()
         controller = self.run_sequence([good, good, bad, good, good, good])
         controller.trigger_sort.assert_called_once_with('metal', live.CATEGORY_CONFIG['metal'])
+
+    def test_best_match_sorts_low_score_even_when_unknown_dominates_once(self):
+        low = ('paper', .04, {'paper': .04, 'plastic': .03, 'metal': .02, 'food': .01, 'unknown': .9})
+        controller = self.run_sequence([low] * 10, policy='best-match')
+        controller.trigger_sort.assert_called_once_with('paper', live.CATEGORY_CONFIG['paper'])
+
+    def test_best_match_averages_frames_instead_of_waiting_forever_on_flipping_labels(self):
+        paper = ('paper', .4, {'paper': .4, 'plastic': .3, 'metal': .1, 'food': .1, 'unknown': .1})
+        plastic = ('plastic', .6, {'paper': .1, 'plastic': .6, 'metal': .1, 'food': .1, 'unknown': .1})
+        controller = self.run_sequence([paper, plastic, paper], policy='best-match')
+        controller.trigger_sort.assert_called_once_with('plastic', live.CATEGORY_CONFIG['plastic'])
+
+    def test_best_window_rejects_invalid_scores_and_empty_window(self):
+        for value in [float('nan'), -1, 2]:
+            with self.assertRaises(ValueError):
+                live.best_window_prediction([('paper', value, dict.fromkeys(live.CATEGORY_CONFIG, value))])
+        with self.assertRaises(ValueError):
+            live.best_window_prediction([])

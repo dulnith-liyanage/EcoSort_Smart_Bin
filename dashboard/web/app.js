@@ -9,7 +9,7 @@ const symbols = {
   metal:'<ellipse cx="12" cy="5" rx="6" ry="2"/><path d="M6 5v14c0 3 12 3 12 0V5M9 11v5"/>',
   food:'<path d="M12 7c-9-5-12 9-5 13 2 1 3 0 5 0s3 1 5 0c7-4 4-18-5-13Zm0 0c0-5 3-5 5-5 0 4-2 5-5 5Z"/>'
 };
-const phases = {idle:'Not running',loading:'Starting up',calibrating:'Preparing the tray',ready:'Sorting is on',observing:'Sorting paused',sorting:'Sorting this item',cooldown:'Returning to ready',stopping:'Finishing the current cycle',error:'Needs attention'};
+const phases = {idle:'Not running',loading:'Starting up',calibrating:'Preparing the tray',ready:'Sorting is on',waiting_clear:'Waiting for an empty tray',observing:'Sorting paused',sorting:'Sorting this item',cooldown:'Returning to ready',stopping:'Finishing the current cycle',error:'Needs attention'};
 let latest, connected=false, pending=false, frameLoading=false, frameAt=null, historyKey='', toastTimer;
 const esc = value => String(value ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const score = value => Number.isFinite(value) ? `${Math.round(value*100)}%` : '—';
@@ -45,7 +45,7 @@ function render(data) {
   $('material-icon').innerHTML=s.category&&symbols[s.category]?`<svg viewBox="0 0 24 24">${symbols[s.category]}</svg>`:'—';
   $('material-icon').style.color=colors[s.category]||'#a4c6aa';
   $('status-label').textContent=phases[s.phase]||s.phase;
-  $('message').textContent=s.phase==='calibrating'?(s.auto_sort?'Keep the tray empty for a moment. Sorting starts after calibration.':'Keep the tray empty for a moment. Sorting will remain paused.'):s.phase==='loading'?'The website is ready. The camera and model are starting.':s.phase==='observing'?'The camera and classifier are still running.':s.phase==='sorting'?'Moving the tray towards the selected bin.':s.phase==='cooldown'?'Route completed. Waiting for the tray to clear.':s.phase==='ready'&&!data.demo?(s.message.includes('low confidence')?'Reposition the item for a clearer view.':s.category?'Checking the item…':'Place one item on the tray.'):s.message;
+  $('message').textContent=s.phase==='calibrating'?(s.auto_sort?'Keep the tray empty for a moment. Sorting starts after calibration.':'Keep the tray empty for a moment. Sorting will remain paused.'):s.phase==='loading'?'The website is ready. The camera and model are starting.':s.phase==='observing'?'The camera and classifier are still running.':s.phase==='sorting'?'Moving the tray towards the selected bin.':s.phase==='cooldown'?'Route completed. Waiting for the tray to clear.':s.phase==='waiting_clear'?'Previous route finished. Remove any remaining item and keep the tray clear briefly.':s.phase==='ready'&&!data.demo?(s.message.includes('low confidence')?'Reposition the item for a clearer view.':s.category?'Checking the item…':'Place one item on the tray.'):s.message;
   $('control').textContent=starting?'Pause after startup':s.phase==='stopping'?'Finishing…':!active?'Start sorting':s.paused?'Resume sorting':'Pause sorting';
   $('control').disabled=pending||!connected||s.phase==='stopping'||(starting&&s.paused);
   $('control-note').textContent=starting?'Loading the model and learning the empty tray.':data.demo?'Sample data only. No physical movement.':s.phase==='error'?'Check the assembly before starting again.':active?(s.paused?'The camera and classifier stay on while paused.':'Pause stops the next route; the current cycle finishes first.'):'A physical session commands HOME before sorting.';

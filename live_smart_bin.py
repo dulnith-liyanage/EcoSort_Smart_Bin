@@ -186,6 +186,19 @@ def prediction_is_eligible(category, probabilities, threshold=0.60, margin=0.15)
     return bool(score >= threshold and score > runner_up and score - runner_up >= margin)
 
 
+def best_window_prediction(history):
+    """Choose one bin from several frames without renormalising the match score."""
+    if not history:
+        raise ValueError('At least one prediction is required.')
+    for _, _, scores in history:
+        values = np.asarray([scores[key] for key in CATEGORY_CONFIG], dtype=float)
+        if not np.isfinite(values).all() or (values < 0).any() or (values > 1).any():
+            raise ValueError('Invalid supported-class scores.')
+    means = {key: float(np.mean([scores[key] for _, _, scores in history]))
+             for key in CATEGORY_CONFIG}
+    return best_supported_prediction(means)
+
+
 class BaseServoController:
     """Base interface for Servo Actuation."""
     def trigger_sort(self, cat_key, cfg):
@@ -659,6 +672,8 @@ def main(bridge=None):
                         help='CPU inference threads (default: 2, leaving capacity for VNC)')
     parser.add_argument('--model', choices=MODEL_NAMES, default='clip',
                         help='Pretrained backend: clip (cached baseline) or siglip2 (comparison candidate)')
+    parser.add_argument('--routing-policy', choices=['best-match', 'confident'], default='best-match',
+                        help='best-match sorts every detected item; confident requires score/margin gates')
     parser.add_argument('--threshold', type=float, default=0.60, help='Relative score threshold to trigger physical sort (default: 0.60)')
     parser.add_argument('--margin', type=float, default=0.15, help='Minimum top-two score gap (default: 0.15; tune on validation images)')
     parser.add_argument('--stable-frames', type=int, default=3, help='Consecutive identical predictions required (default: 3)')
@@ -727,6 +742,7 @@ def main(bridge=None):
     print(f" {C_BOLD}{C_GREEN}ECOSORT SMART BIN: 2-AXIS PAN-TILT 2x2 GRID WASTE SEGREGATION{C_RESET}")
     print("   Four project waste routes; verify local collection requirements separately")
     print(f"   Device Acceleration : {classifier.dev_desc}")
+    print(f"   Routing policy: {args.routing_policy} (match scores are not accuracy measurements)")
     print(f"   Relative Score Cutoff: {args.threshold * 100:.0f}% | Cooldown: {args.cooldown}s")
     print(f"   Minimum top-two gap : {args.margin * 100:.0f}% | Stable predictions: {args.stable_frames}")
     print(f"   Pretrained model: {MODEL_NAMES[args.model]}")
@@ -792,11 +808,14 @@ def main(bridge=None):
             if bridge:
                 bridge.frame(frame)
                 phase = ('calibrating' if frames_read < calibration_frames else
-                         'cooldown' if in_cooldown else 'observing' if bridge.paused else 'ready')
+                         'cooldown' if in_cooldown else 'observing' if bridge.paused else
+                         'waiting_clear' if locked_text is not None else 'ready')
                 bridge.emit('state', phase=phase, paused=bridge.paused, fps=round(fps, 1),
                             scores=last_probs, stable=len(prediction_history),
                             calibration_progress=min(1.0, frames_read / calibration_frames),
-                            message=locked_text or decision_text or ('Keep the tray empty while calibrating.' if phase == 'calibrating' else 'Place one item in the scanning area.'))
+                            routing_policy=args.routing_policy,
+                            message=('Previous route completed. Clear the tray before adding another item.'
+                                     if phase == 'waiting_clear' else locked_text or decision_text) or ('Keep the tray empty while calibrating.' if phase == 'calibrating' else 'Place one item in the scanning area.'))
 
             if warmup_remaining > 0:
                 warmup_remaining -= 1
@@ -926,18 +945,23 @@ def main(bridge=None):
                 if is_headless:
                     print(f"\r[EVAL] Paper: {probs['paper']*100:2.0f}% | Plastic: {probs['plastic']*100:2.0f}% | Metal: {probs['metal']*100:2.0f}% | Food scraps: {probs['food']*100:2.0f}% | Top: {pred_cat} ({conf*100:.0f}%)", end='', flush=True)
 
-                if (prediction_is_eligible(pred_cat, probs, args.threshold, args.margin)
+                if ((args.routing_policy == 'best-match' or
+                     prediction_is_eligible(pred_cat, probs, args.threshold, args.margin))
                         and locked_text is None and (bridge is None or not (bridge.paused or bridge.stopping))):
                     decision_text = f"Best match: {CATEGORY_CONFIG[pred_cat]['label']}; checking stability..."
-                    prediction_history.append((pred_cat, conf))
+                    prediction_history.append((pred_cat, conf, probs))
                     if len(prediction_history) > args.stable_frames:
                         prediction_history.pop(0)
 
                     recent_classes = [p[0] for p in prediction_history]
                     # Trigger physical action once category is stable across required frames
-                    if len(recent_classes) == args.stable_frames and len(set(recent_classes)) == 1:
-                        final_cat = recent_classes[0]
-                        avg_conf = np.mean([p[1] for p in prediction_history])
+                    if len(recent_classes) == args.stable_frames and (
+                            args.routing_policy == 'best-match' or len(set(recent_classes)) == 1):
+                        if args.routing_policy == 'best-match':
+                            final_cat, avg_conf = best_window_prediction(prediction_history)
+                        else:
+                            final_cat = recent_classes[0]
+                            avg_conf = np.mean([p[1] for p in prediction_history])
                         cfg = CATEGORY_CONFIG[final_cat]
 
                         # The dashboard pause/stop flag may change during inference.

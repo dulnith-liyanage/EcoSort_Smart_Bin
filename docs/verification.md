@@ -18,7 +18,7 @@ PYTHONDONTWRITEBYTECODE=1 HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 ./venv/bin/pyt
 ./venv/bin/python scripts/evaluate_classifier.py --help
 ```
 
-The current Mac suite has **77 passing tests**, plus Python and shell syntax
+The current Mac suite has **80 passing tests**, plus Python and shell syntax
 checks. No camera, servo commands or model downloads are used by these checks.
 3D-print/CAD files and their dedicated geometry tests have been removed because
 the physical project no longer uses printed components.
