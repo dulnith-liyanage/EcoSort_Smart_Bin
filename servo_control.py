@@ -91,6 +91,8 @@ class ServoPanTilt:
         self.calibration = servo_settings.load_calibration()
         self.current_pan = self.calibration.pan_home
         self.current_tilt = self.calibration.tilt_home
+        self._pan_released = False
+        self._home_commanded = False
 
         self._init_hardware()
 
@@ -144,15 +146,21 @@ class ServoPanTilt:
         to_ang = int(max(0, min(180, to_ang)))
         if from_ang == to_ang:
             return
-        step = 1 if to_ang > from_ang else -1
         step_delay = max(step_delay or self.calibration.step_delay, self.calibration.step_delay)
-        for a in range(from_ang, to_ang + step, step):
-            self.kit.servo[channel].angle = a
-            time.sleep(step_delay)
+        for angle,delay in servo_settings.motion_steps(
+                from_ang,to_ang,step_delay,self.calibration.smooth_motion):
+            self.kit.servo[channel].angle = angle
+            time.sleep(delay)
 
     def set_pan(self, angle, smooth=True, step_delay=None):
         """Sets Pan (Azimuth) angle [0 - 180 deg]."""
         target = int(max(0, min(180, angle)))
+        if self._pan_released and target == self.current_pan:
+            return
+        if self._pan_released:
+            self.kit.servo[self.pan_ch].angle = self.current_pan
+            self._pan_released = False
+            time.sleep(0.15)
         if smooth:
             self.smooth_move(self.pan_ch, self.current_pan, target, step_delay)
         else:
@@ -163,12 +171,33 @@ class ServoPanTilt:
     def set_tilt(self, angle, smooth=True, step_delay=None):
         """Sets Tilt (Pitch) angle [0 - 180 deg]."""
         target = int(max(0, min(180, angle)))
+        if self._pan_released and target != self.calibration.tilt_home:
+            self.kit.servo[self.pan_ch].angle = self.current_pan
+            self._pan_released = False
+            time.sleep(0.15)
         if smooth:
             self.smooth_move(self.tilt_ch, self.current_tilt, target, step_delay)
         else:
             self.kit.servo[self.tilt_ch].angle = target
         self.current_tilt = target
         log_info(f"Tilt -> {self.current_tilt}°")
+
+    def release_pan_for_dump(self):
+        """Opt-in pan release at a bin; tilt must be level and stays powered."""
+        if (self.calibration.release_pan_during_dump
+                and self.current_tilt == self.calibration.tilt_home):
+            time.sleep(0.2)
+            self.kit.servo[self.pan_ch].angle = None
+            self._pan_released = True
+
+    def release_idle_pan(self):
+        """Release only pan when both axes have returned to calibrated HOME."""
+        if (self.calibration.release_pan_at_home
+                and self.current_pan == self.calibration.pan_home
+                and self.current_tilt == self.calibration.tilt_home):
+            # Release immediately after the final HOME command; no powered idle dwell.
+            self.kit.servo[self.pan_ch].angle = None
+            self._pan_released = True
 
     def go_home(self):
         """Command saved HOME angles; physical level must be checked by the operator."""
@@ -179,8 +208,21 @@ class ServoPanTilt:
         time.sleep(0.1)
         self.set_pan(pan)
         self.kit.servo[self.tilt_ch].angle = tilt
-        self.kit.servo[self.pan_ch].angle = pan
+        if not self._pan_released:
+            self.kit.servo[self.pan_ch].angle = pan
+        if not self._home_commanded:
+            time.sleep(0.25)
+        self._home_commanded = True
+        self.release_idle_pan()
         log_success("Saved HOME commanded; verify level on the mounting plate.")
+
+    def _set_dump_tilt(self, angle):
+        # A route may leave pan released; ordinary manual tilt still re-engages it.
+        if self.calibration.release_pan_during_dump and self._pan_released:
+            self.smooth_move(self.tilt_ch, self.current_tilt, angle)
+            self.current_tilt = angle
+        else:
+            self.set_tilt(angle)
 
     def dump_bin(self, bin_num):
         """Executes full sorting cycle for 2x2 grid:
@@ -205,28 +247,33 @@ class ServoPanTilt:
         # Step 1: Pan to diagonal with tilt at the saved level position.
         log_info(f"1. Aligning Pan to {pan}° along {b['pos']} diagonal...")
         self.set_pan(pan)
-        time.sleep(0.2)
+        if not self.calibration.smooth_motion:
+            time.sleep(0.2)
+
+        self.release_pan_for_dump()
 
         # Step 2: Tilt tray to dump angle
         log_info(f"2. Tilting to {tilt}° ({b['mode']}) to dump waste...")
-        self.set_tilt(tilt)
-        time.sleep(1.0)
+        self._set_dump_tilt(tilt)
+        time.sleep(self.calibration.dump_hold_seconds)
 
         if shake != tilt:
             log_info("3. Calibrated shake...")
-            self.set_tilt(shake)
+            self._set_dump_tilt(shake)
             time.sleep(0.12)
-            self.set_tilt(tilt)
+            self._set_dump_tilt(tilt)
             time.sleep(0.20)
 
         # Step 4: Return to calibrated level position.
         log_info(f"4. Returning tilt to calibrated HOME {self.calibration.tilt_home}°...")
-        self.set_tilt(self.calibration.tilt_home)
-        time.sleep(0.2)
+        self._set_dump_tilt(self.calibration.tilt_home)
+        if not self.calibration.smooth_motion:
+            time.sleep(0.2)
 
         # Step 5: Return pan to calibrated centre.
         log_info(f"5. Returning pan to calibrated HOME {self.calibration.pan_home}°...")
         self.set_pan(self.calibration.pan_home)
+        self.release_idle_pan()
         log_success(f"Dump sequence for {b['name']} ({b['pos']}) complete!\n")
 
     def sweep_pan(self, min_ang=45, max_ang=135, cycles=2):
@@ -240,6 +287,7 @@ class ServoPanTilt:
             self.set_pan(max_ang, step_delay=0.012)
             time.sleep(0.3)
         self.set_pan(self.calibration.pan_home)
+        self.release_idle_pan()
         log_success("Diagonal Pan sweep completed.")
 
     def sweep_tilt(self, min_ang=35, max_ang=145, cycles=2):

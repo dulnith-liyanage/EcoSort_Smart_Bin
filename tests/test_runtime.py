@@ -133,6 +133,141 @@ class RuntimeTests(unittest.TestCase):
                     self.assertEqual(self.events[last_tilt], (1, 125))
                     self.assertGreater(len(self.events) - 1, last_tilt)
 
+    def test_quiet_idle_releases_only_pan_after_home_and_every_route(self):
+        saved = servo_settings.Calibration(90,125,90,160,0,0.04,True)
+        with patch.object(servo_settings,'load_calibration',return_value=saved):
+            controllers=[live.DirectPca9685Controller(), calibration.ServoPanTilt()]
+        for controller in controllers:
+            if isinstance(controller,calibration.ServoPanTilt):
+                controller.go_home()
+            self.assertEqual(self.events[-1],(0,None))
+            for index,(key,cfg) in enumerate(live.CATEGORY_CONFIG.items(),1):
+                self.events.clear()
+                if isinstance(controller,live.DirectPca9685Controller):
+                    controller.trigger_sort(key,cfg)
+                else:
+                    controller.dump_bin(str(index))
+                pan=[angle for ch,angle in self.events if ch==0]
+                tilt=[angle for ch,angle in self.events if ch==1]
+                self.assertEqual(pan[0],90)  # re-engage before route movement
+                self.assertIn(cfg['pan'],pan)
+                self.assertEqual(pan[-2:],[90,None])
+                self.assertEqual(pan.count(None),1)
+                self.assertNotIn(None,tilt)  # retain support for the tray
+                self.assertEqual(tilt[-1],125)
+                self.assertEqual((controller.current_pan,controller.current_tilt),(90,125))
+
+    def test_smooth_routes_in_both_controllers_keep_endpoints_and_tilt_support(self):
+        saved=servo_settings.Calibration(90,125,90,160,0,.04,True,True)
+        with patch.object(servo_settings,'load_calibration',return_value=saved):
+            controllers=[live.DirectPca9685Controller(),calibration.ServoPanTilt()]
+        for controller in controllers:
+            if isinstance(controller,calibration.ServoPanTilt):controller.go_home()
+            self.events.clear()
+            if isinstance(controller,live.DirectPca9685Controller):
+                controller.trigger_sort('paper',live.CATEGORY_CONFIG['paper'])
+            else:controller.dump_bin(1)
+            self.assertIn((0,135),self.events)
+            self.assertIn((1,90),self.events)
+            self.assertEqual(self.events[-1],(0,None))
+            self.assertNotIn((1,None),self.events)
+            self.assertTrue(all(0<=angle<=180 for _,angle in self.events if angle is not None))
+            self.assertEqual((controller.current_pan,controller.current_tilt),(90,125))
+
+    def test_continuous_route_avoids_extra_stationary_holds(self):
+        saved=servo_settings.Calibration(90,125,90,160,0,.015,True,True,.2)
+        with patch.object(servo_settings,'load_calibration',return_value=saved):
+            controllers=[live.DirectPca9685Controller(),calibration.ServoPanTilt()]
+        for controller in controllers:
+            if isinstance(controller,calibration.ServoPanTilt):controller.go_home()
+            with patch('time.sleep') as wait:
+                if isinstance(controller,live.DirectPca9685Controller):
+                    controller.trigger_sort('paper',live.CATEGORY_CONFIG['paper'])
+                else:controller.dump_bin(1)
+            stationary_delays=sum(call.args[0] for call in wait.call_args_list if call.args[0]>.020001)
+            self.assertLessEqual(stationary_delays,.600001)
+            self.assertEqual((controller.current_pan,controller.current_tilt),(90,125))
+
+    def test_pan_release_covers_dump_and_level_return_without_disabling_tilt(self):
+        saved=servo_settings.Calibration(90,125,90,160,0,.015,True,True,.2,True)
+        with patch.object(servo_settings,'load_calibration',return_value=saved):
+            controllers=[live.DirectPca9685Controller(),calibration.ServoPanTilt()]
+        for controller in controllers:
+            if isinstance(controller,calibration.ServoPanTilt):controller.go_home()
+            for number,(key,cfg) in enumerate(live.CATEGORY_CONFIG.items(),1):
+                self.events.clear()
+                if isinstance(controller,live.DirectPca9685Controller):controller.trigger_sort(key,cfg)
+                else:controller.dump_bin(number)
+                off=[i for i,event in enumerate(self.events) if event==(0,None)]
+                self.assertEqual(len(off),2)
+                release=off[0]
+                self.assertEqual(self.events[release-1],(0,cfg['pan']))
+                reengage=next(i for i in range(release+1,len(self.events)) if self.events[i][0]==0)
+                segment=self.events[release+1:reengage]
+                self.assertIn((1,saved.tilt(cfg['tilt'])),segment)
+                self.assertEqual(segment[-1],(1,125))
+                self.assertTrue(all(ch==1 and angle is not None for ch,angle in segment))
+                self.assertEqual(self.events[reengage],(0,cfg['pan']))
+                self.assertEqual(self.events[-1],(0,None))
+                self.assertEqual((controller.current_pan,controller.current_tilt),(90,125))
+
+    def test_dump_release_is_opt_in_and_refuses_a_tilted_tray(self):
+        controller=live.DirectPca9685Controller()
+        self.events.clear()
+        controller.release_pan_for_dump()
+        self.assertEqual(self.events,[])
+        from dataclasses import replace
+        controller.calibration=replace(controller.calibration,release_pan_during_dump=True)
+        controller.current_tilt=120
+        controller.release_pan_for_dump()
+        self.assertEqual(self.events,[])
+
+    def test_quiet_home_release_has_no_powered_idle_wait(self):
+        saved=servo_settings.Calibration(90,125,90,160,0,.015,True,True,1.5,True)
+        with patch.object(servo_settings,'load_calibration',return_value=saved):
+            controllers=[live.DirectPca9685Controller(),calibration.ServoPanTilt()]
+        for controller in controllers:
+            self.events.clear()
+            with patch('time.sleep') as wait:controller.release_idle_pan()
+            wait.assert_not_called()
+            self.assertEqual(self.events,[(0,None)])
+
+    def test_repeated_home_does_not_reenable_released_pan(self):
+        saved=servo_settings.Calibration(90,125,90,160,0,.015,True,True,1.5,True)
+        with patch.object(servo_settings,'load_calibration',return_value=saved):
+            controllers=[live.DirectPca9685Controller(),calibration.ServoPanTilt()]
+        for controller in controllers:
+            if isinstance(controller,calibration.ServoPanTilt):controller.go_home()
+            self.events.clear()
+            if isinstance(controller,live.DirectPca9685Controller):controller.reset_home()
+            else:controller.go_home()
+            self.assertFalse(any(ch==0 and angle is not None for ch,angle in self.events))
+            self.assertTrue(controller._pan_released)
+
+    def test_manual_tilt_reengages_pan_before_leaving_level(self):
+        saved=servo_settings.Calibration(90,125,90,160,0,0.04,True)
+        with patch.object(servo_settings,'load_calibration',return_value=saved):
+            controller=calibration.ServoPanTilt()
+        controller.go_home()
+        self.events.clear()
+        controller.set_tilt(124)
+        self.assertEqual(self.events[0],(0,90))
+        self.assertFalse(controller._pan_released)
+        self.assertNotIn((0,None),self.events)
+
+    def test_quiet_release_refuses_non_home_position(self):
+        saved=servo_settings.Calibration(90,125,90,160,0,0.04,True)
+        with patch.object(servo_settings,'load_calibration',return_value=saved):
+            controller=live.DirectPca9685Controller()
+        self.events.clear()
+        controller.current_tilt=90
+        controller.release_idle_pan()
+        self.assertEqual(self.events,[])
+        controller.current_tilt=125
+        controller.current_pan=135
+        controller.release_idle_pan()
+        self.assertEqual(self.events,[])
+
     def test_startup_emits_home(self):
         live.DirectPca9685Controller()
         self.assertEqual(self.events[-2:], [(1,90),(0,90)])

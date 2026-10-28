@@ -186,6 +186,19 @@ def prediction_is_eligible(category, probabilities, threshold=0.60, margin=0.15)
     return bool(score >= threshold and score > runner_up and score - runner_up >= margin)
 
 
+def best_window_prediction(history):
+    """Choose one bin from several frames without renormalising the match score."""
+    if not history:
+        raise ValueError('At least one prediction is required.')
+    for _, _, scores in history:
+        values = np.asarray([scores[key] for key in CATEGORY_CONFIG], dtype=float)
+        if not np.isfinite(values).all() or (values < 0).any() or (values > 1).any():
+            raise ValueError('Invalid supported-class scores.')
+    means = {key: float(np.mean([scores[key] for _, _, scores in history]))
+             for key in CATEGORY_CONFIG}
+    return best_supported_prediction(means)
+
+
 class BaseServoController:
     """Base interface for Servo Actuation."""
     def trigger_sort(self, cat_key, cfg):
@@ -225,19 +238,44 @@ class DirectPca9685Controller(BaseServoController):
 
         self.current_pan = self.calibration.pan_home
         self.current_tilt = self.calibration.tilt_home
+        self._home_commanded = False
+        self._pan_released = False
         self.reset_home()
         log_success(f"Direct Raspberry Pi I2C PCA9685 Connected (Pan: Ch{pan_channel}, Tilt: Ch{tilt_channel})")
 
+    def release_pan_for_dump(self):
+        """Opt-in pan release at a bin; tilt must be level and stays powered."""
+        if (self.calibration.release_pan_during_dump
+                and self.current_tilt == self.calibration.tilt_home):
+            time.sleep(0.2)
+            self.kit.servo[self.pan_ch].angle = None
+            self._pan_released = True
+
+    def release_idle_pan(self):
+        """Quiet the verified unloaded vertical pan axis; always retain tilt torque."""
+        if (self.calibration.release_pan_at_home
+                and self.current_pan == self.calibration.pan_home
+                and self.current_tilt == self.calibration.tilt_home):
+            # Release immediately after the final HOME command; no powered idle dwell.
+            self.kit.servo[self.pan_ch].angle = None
+            self._pan_released = True
+
     def _smooth_move(self, channel, from_ang, to_ang, step_delay=None):
+        if from_ang == to_ang:
+            return
+        if channel == self.pan_ch and self._pan_released:
+            self.kit.servo[self.pan_ch].angle = self.current_pan
+            self._pan_released = False
+            time.sleep(0.15)
         from_ang = int(from_ang)
         to_ang = int(to_ang)
         if from_ang == to_ang:
             return
-        step = 1 if to_ang > from_ang else -1
         step_delay = max(step_delay or self.calibration.step_delay, self.calibration.step_delay)
-        for a in range(from_ang, to_ang + step, step):
-            self.kit.servo[channel].angle = a
-            time.sleep(step_delay)
+        for angle,delay in servo_settings.motion_steps(
+                from_ang,to_ang,step_delay,self.calibration.smooth_motion):
+            self.kit.servo[channel].angle = angle
+            time.sleep(delay)
 
     def trigger_sort(self, cat_key, cfg):
         target_pan, target_tilt, shake_tilt = self.calibration.route(cfg)
@@ -250,13 +288,16 @@ class DirectPca9685Controller(BaseServoController):
         # Step 1: Pan with tilt at the calibrated level position.
         self._smooth_move(self.pan_ch, self.current_pan, target_pan)
         self.current_pan = target_pan
-        time.sleep(0.20)
+        if not self.calibration.smooth_motion:
+            time.sleep(0.20)
+
+        self.release_pan_for_dump()
 
         # Step 2: Tilt downward along pan (forward 35° or backward 145°)
         log_info(f"[RPi I2C PCA9685] Tilting tray to {target_tilt}° to drop waste into {bin_pos}...")
         self._smooth_move(self.tilt_ch, self.current_tilt, target_tilt)
         self.current_tilt = target_tilt
-        time.sleep(1.0)
+        time.sleep(self.calibration.dump_hold_seconds)
 
         if shake_tilt != target_tilt:
             self._smooth_move(self.tilt_ch, target_tilt, shake_tilt)
@@ -269,11 +310,13 @@ class DirectPca9685Controller(BaseServoController):
         # Step 4: Return tilt to the calibrated HOME.
         self._smooth_move(self.tilt_ch, self.current_tilt, self.calibration.tilt_home)
         self.current_tilt = self.calibration.tilt_home
-        time.sleep(0.20)
+        if not self.calibration.smooth_motion:
+            time.sleep(0.20)
 
         # Step 5: Return pan to the calibrated HOME.
         self._smooth_move(self.pan_ch, self.current_pan, self.calibration.pan_home)
         self.current_pan = self.calibration.pan_home
+        self.release_idle_pan()
         log_success(f"2x2 Sort cycle for {cfg['label']} ({bin_pos}) complete. Returned to HOME.")
 
     def reset_home(self):
@@ -281,9 +324,16 @@ class DirectPca9685Controller(BaseServoController):
         self.current_tilt = self.calibration.tilt_home
         self._smooth_move(self.pan_ch, self.current_pan, self.calibration.pan_home)
         self.current_pan = self.calibration.pan_home
-        # The initial cached angles are not measurements. Always send HOME.
-        self.kit.servo[self.tilt_ch].angle = self.calibration.tilt_home
-        self.kit.servo[self.pan_ch].angle = self.calibration.pan_home
+        # Initial cached angles are not measurements: command and settle once.
+        initial_home = not self._home_commanded
+        if initial_home or not self._pan_released:
+            self.kit.servo[self.tilt_ch].angle = self.calibration.tilt_home
+            self.kit.servo[self.pan_ch].angle = self.calibration.pan_home
+            self._pan_released = False
+        self._home_commanded = True
+        if initial_home:
+            time.sleep(0.25)
+        self.release_idle_pan()
 
     def close(self):
         self.reset_home()
@@ -628,7 +678,7 @@ class CameraCapture:
         if self.cap is not None:
             self.cap.release()
 
-def main():
+def main(bridge=None):
     parser = argparse.ArgumentParser(description='EcoSort Smart Bin - 2-Axis Pan-Tilt Waste Segregator (2x2 Grid)')
     parser.add_argument('--driver', type=str, default='auto', choices=['auto', 'rpi-i2c', 'pca9685', 'sim'],
                         help="Hardware servo controller: 'auto' (Raspberry Pi PCA9685 I2C), 'rpi-i2c' (direct Raspberry Pi PCA9685), or 'sim' (simulation)")
@@ -640,6 +690,8 @@ def main():
                         help='CPU inference threads (default: 2, leaving capacity for VNC)')
     parser.add_argument('--model', choices=MODEL_NAMES, default='clip',
                         help='Pretrained backend: clip (cached baseline) or siglip2 (comparison candidate)')
+    parser.add_argument('--routing-policy', choices=['best-match', 'confident'], default='best-match',
+                        help='best-match sorts every detected item; confident requires score/margin gates')
     parser.add_argument('--threshold', type=float, default=0.60, help='Relative score threshold to trigger physical sort (default: 0.60)')
     parser.add_argument('--margin', type=float, default=0.15, help='Minimum top-two score gap (default: 0.15; tune on validation images)')
     parser.add_argument('--stable-frames', type=int, default=3, help='Consecutive identical predictions required (default: 3)')
@@ -672,9 +724,16 @@ def main():
         except Exception as e:
             parser.error(f"Invalid prompts file: {e}")
 
+    if bridge:
+        bridge.emit('state', phase='loading', paused=True, model=args.model,
+                    message='Loading model. Keep the tray empty for background calibration.')
+
     # Initialize CLIP
     classifier = ClipClassifier(model_name=MODEL_NAMES[args.model], custom_prompts=custom_prompts,
                                 cpu_threads=args.cpu_threads)
+
+    if bridge and bridge.stopping:
+        return
 
     # Initialize Hardware Controller (Direct Raspberry Pi I2C PCA9685 or Simulation)
     controller = init_hardware_controller(
@@ -684,16 +743,24 @@ def main():
     )
 
     # Initialize Camera (Picamera2 CSI or OpenCV USB)
-    cam = CameraCapture(args.camera)
+    try:
+        cam = CameraCapture(args.camera)
+    except Exception:
+        controller.close()
+        raise
     if not cam.is_opened():
         log_error("Could not open camera. Please check camera connection or permissions.")
+        cam.release()
         controller.close()
+        if bridge:
+            bridge.emit('error', message='Camera unavailable. Close other camera applications and check the CSI connection.')
         return
 
     print("\n" + "="*72)
     print(f" {C_BOLD}{C_GREEN}ECOSORT SMART BIN: 2-AXIS PAN-TILT 2x2 GRID WASTE SEGREGATION{C_RESET}")
     print("   Four project waste routes; verify local collection requirements separately")
     print(f"   Device Acceleration : {classifier.dev_desc}")
+    print(f"   Routing policy: {args.routing_policy} (match scores are not accuracy measurements)")
     print(f"   Relative Score Cutoff: {args.threshold * 100:.0f}% | Cooldown: {args.cooldown}s")
     print(f"   Minimum top-two gap : {args.margin * 100:.0f}% | Stable predictions: {args.stable_frames}")
     print(f"   Pretrained model: {MODEL_NAMES[args.model]}")
@@ -731,18 +798,46 @@ def main():
     background_frame = None
     calibration_frames = 30
     frames_read = 0
+    warmup_remaining = getattr(bridge, 'warmup_frames', 0) if bridge else 0
 
     try:
         while True:
+            dashboard_actions = bridge.poll() if bridge else []
+            if bridge and bridge.stopping:
+                break
+            if 'recalibrate' in dashboard_actions:
+                background_frame = None
+                frames_read = 0
+                prediction_history = []
+                locked_text = decision_text = None
+                last_probs = {c: 0.0 for c in classifier.categories}
             ret, frame = cam.read()
             if not ret:
                 log_error("Camera frame read failed. Exiting loop.")
+                if bridge:
+                    bridge.emit('error', message='Camera frame read failed. Session stopped.')
                 break
 
             now = time.monotonic()
             fps = 0.9 * fps + 0.1 * (1.0 / max(0.001, now - prev_time))
             prev_time = now
             in_cooldown = (now < cooldown_until)
+
+            if bridge:
+                bridge.frame(frame)
+                phase = ('calibrating' if frames_read < calibration_frames else
+                         'cooldown' if in_cooldown else 'observing' if bridge.paused else
+                         'waiting_clear' if locked_text is not None else 'ready')
+                bridge.emit('state', phase=phase, paused=bridge.paused, fps=round(fps, 1),
+                            scores=last_probs, stable=len(prediction_history),
+                            calibration_progress=min(1.0, frames_read / calibration_frames),
+                            routing_policy=args.routing_policy,
+                            message=('Previous route completed. Clear the tray before adding another item.'
+                                     if phase == 'waiting_clear' else locked_text or decision_text) or ('Keep the tray empty while calibrating.' if phase == 'calibrating' else 'Place one item in the scanning area.'))
+
+            if warmup_remaining > 0:
+                warmup_remaining -= 1
+                continue
 
             h_f, w_f, _ = frame.shape
 
@@ -768,6 +863,8 @@ def main():
                     cv2.accumulateWeighted(gray_roi, background_frame, 0.1)
 
                 frames_read += 1
+                if bridge and frames_read == calibration_frames:
+                    bridge.calibrated()
                 calib_msg = f"Calibrating Empty Tray... {frames_read}/{calibration_frames}"
 
                 if not is_headless:
@@ -785,7 +882,7 @@ def main():
             # Phase 2: Object Motion / Presence Detection
             object_detected = False
             obj_crop = roi
-            force_scan = False
+            force_scan = 'scan' in dashboard_actions
 
             # Check key presses in GUI mode
             if not is_headless:
@@ -856,27 +953,47 @@ def main():
                 pip_preview = eval_img
 
                 # Perform classification
+                inference_started = time.monotonic()
                 pred_cat, conf, probs = classifier.predict(eval_img)
                 last_probs = probs
+                if bridge:
+                    bridge.emit('state', category=pred_cat, score=float(conf), scores=probs,
+                                inference_ms=round((time.monotonic() - inference_started) * 1000))
 
                 if is_headless:
                     print(f"\r[EVAL] Paper: {probs['paper']*100:2.0f}% | Plastic: {probs['plastic']*100:2.0f}% | Metal: {probs['metal']*100:2.0f}% | Food scraps: {probs['food']*100:2.0f}% | Top: {pred_cat} ({conf*100:.0f}%)", end='', flush=True)
 
-                if prediction_is_eligible(pred_cat, probs, args.threshold, args.margin) and locked_text is None:
+                if ((args.routing_policy == 'best-match' or
+                     prediction_is_eligible(pred_cat, probs, args.threshold, args.margin))
+                        and locked_text is None and (bridge is None or not (bridge.paused or bridge.stopping))):
                     decision_text = f"Best match: {CATEGORY_CONFIG[pred_cat]['label']}; checking stability..."
-                    prediction_history.append((pred_cat, conf))
+                    prediction_history.append((pred_cat, conf, probs))
                     if len(prediction_history) > args.stable_frames:
                         prediction_history.pop(0)
 
                     recent_classes = [p[0] for p in prediction_history]
                     # Trigger physical action once category is stable across required frames
-                    if len(recent_classes) == args.stable_frames and len(set(recent_classes)) == 1:
-                        final_cat = recent_classes[0]
-                        avg_conf = np.mean([p[1] for p in prediction_history])
+                    if len(recent_classes) == args.stable_frames and (
+                            args.routing_policy == 'best-match' or len(set(recent_classes)) == 1):
+                        if args.routing_policy == 'best-match':
+                            final_cat, avg_conf = best_window_prediction(prediction_history)
+                        else:
+                            final_cat = recent_classes[0]
+                            avg_conf = np.mean([p[1] for p in prediction_history])
                         cfg = CATEGORY_CONFIG[final_cat]
 
+                        # The dashboard pause/stop flag may change during inference.
+                        if bridge and (bridge.paused or bridge.stopping):
+                            prediction_history = []
+                            continue
+                        if bridge:
+                            bridge.emit('state', phase='sorting', message='Executing route; commanded angles are not sensor measurements.')
+                        capture = bridge.capture(eval_img) if bridge and hasattr(bridge,'capture') else None
                         # Trigger Hardware Pan-Tilt Dump
                         controller.trigger_sort(final_cat, cfg)
+                        if bridge:
+                            bridge.emit('sort', category=final_cat, score=float(avg_conf),
+                                        capture=capture,model=args.model)
                         pan, tilt, _ = saved.route(cfg)
                         route_desc = f"Pan {pan} -> Tilt {tilt} ({cfg['bin_pos']})"
                         log_sort_event(cfg['label'], avg_conf, cfg['cmd'], route_desc)
@@ -889,7 +1006,9 @@ def main():
                     prediction_history = []
                     if locked_text is None:
                         label = CATEGORY_CONFIG.get(pred_cat, {}).get('label', 'Unsupported item')
-                        message = f'Best guess: {label}; low confidence, no sort.'
+                        message = (f'Best guess: {label}; observation only, routing paused.'
+                                   if bridge and bridge.paused else
+                                   f'Best guess: {label}; low confidence, no sort.')
                         if decision_text != message:
                             log_info(message)
                         decision_text = message
@@ -901,6 +1020,8 @@ def main():
                     cv2.accumulateWeighted(gray_roi, background_frame, 0.05)
                     empty_frames += 1
                     if empty_frames > 12:
+                        if bridge and empty_frames == 13:
+                            bridge.emit('state', category=None, score=None, inference_ms=None, stable=0)
                         locked_text = None
                         decision_text = None
                         prediction_history = []
@@ -935,6 +1056,8 @@ def main():
             cv2.destroyAllWindows()
 
         controller.close()
+        if bridge:
+            bridge.emit('state', phase='idle', paused=True, message='Session stopped. Camera released.')
         log_info("EcoSort shutdown complete.")
 
 if __name__ == '__main__':

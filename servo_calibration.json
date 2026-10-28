@@ -4,6 +4,10 @@
   "forward_tilt": 90,
   "backward_tilt": 160,
   "shake_degrees": 0,
-  "step_delay": 0.04,
-  "note": "Operator reports horizontal at tilt command 125. Pan HOME remains 90. Provisional forward 90 and backward 160 give equal 35-degree command offsets from level. Shake disabled, one-degree steps at 40 ms. Pi disconnected during this update: endpoints, bin directions, clearance and item delivery require physical verification with small unloaded movements first."
+  "step_delay": 0.015,
+  "note": "HOME pan 90 / tilt 125; dump endpoints 90 / 160; shake off. Pan releases at HOME and after bin alignment throughout tilt and level return; tilt remains powered. Operator observed reduced vibration and no visible yaw drift on one unloaded front-left route. Pan-only motion still vibrates; slower pan timing did not help and was not kept. Loaded alignment and other routes with pan released remain unverified. Dump pause increased to 1.5 seconds. Pan releases immediately after route HOME; initial startup retains a brief settling period. Operator reported brief HOME vibration remains in the test.",
+  "release_pan_at_home": true,
+  "smooth_motion": true,
+  "dump_hold_seconds": 1.5,
+  "release_pan_during_dump": true
 }

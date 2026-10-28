@@ -10,6 +10,26 @@ from servo_settings import Calibration, BufferCompatibleI2C, load_calibration, p
 
 
 class CalibrationTests(unittest.TestCase):
+    def test_quiet_pan_flag_is_opt_in_and_strict_boolean(self):
+        self.assertFalse(Calibration().release_pan_at_home)
+        for value in [1,'yes',None]:
+            with self.assertRaises(ValueError):
+                Calibration(release_pan_at_home=value)
+        self.assertTrue(load_calibration().release_pan_at_home)
+
+    def test_dump_pan_release_is_opt_in_and_boolean(self):
+        self.assertFalse(Calibration().release_pan_during_dump)
+        for value in [None,1,'true']:
+            with self.assertRaises(ValueError):Calibration(release_pan_during_dump=value)
+        self.assertTrue(load_calibration().release_pan_during_dump)
+
+    def test_dump_pause_is_bounded_and_legacy_default_is_preserved(self):
+        self.assertEqual(Calibration().dump_hold_seconds,1.0)
+        for value in [0,.09,3,float('nan'),True,'0.2']:
+            with self.subTest(value=value),self.assertRaises(ValueError):
+                Calibration(dump_hold_seconds=value)
+        self.assertEqual(Calibration(dump_hold_seconds=.2).dump_hold_seconds,.2)
+
     def test_default_preserves_logical_routes(self):
         self.assertEqual(Calibration().route({'pan': 135, 'tilt': 35}), (135, 35, 25))
 
@@ -63,7 +83,9 @@ class CalibrationTests(unittest.TestCase):
         c = load_calibration()
         self.assertEqual((c.pan_home, c.tilt_home), (90, 125))
         self.assertEqual(c.tilt(90), 125)
-        self.assertEqual((c.shake_degrees, c.step_delay), (0, 0.04))
+        self.assertEqual((c.shake_degrees, c.step_delay), (0, 0.015))
+        self.assertEqual(c.dump_hold_seconds,1.5)
+        self.assertTrue(c.smooth_motion)
         for pan, logical_tilt, expected in [(135, 35, 90), (45, 35, 90),
                                              (45, 145, 160), (135, 145, 160)]:
             with self.subTest(pan=pan, logical_tilt=logical_tilt):

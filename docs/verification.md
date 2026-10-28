@@ -1,4 +1,4 @@
-# Verification - 26 October 2026
+# Verification - 28 October 2026
 
 ## Current software changes
 
@@ -18,7 +18,7 @@ PYTHONDONTWRITEBYTECODE=1 HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 ./venv/bin/pyt
 ./venv/bin/python scripts/evaluate_classifier.py --help
 ```
 
-The current Mac suite has **43 passing tests**, plus Python and shell syntax
+The current Mac suite has **96 passing tests**, plus Python and shell syntax
 checks. No camera, servo commands or model downloads are used by these checks.
 3D-print/CAD files and their dedicated geometry tests have been removed because
 the physical project no longer uses printed components.
@@ -66,3 +66,29 @@ functional checks, not accuracy measurements. SigLIP 2 weights (about 1.5 GB)
 are cached in a temporary Mac directory, not in Git or on the Pi. The installed
 Transformers version emits upstream BOS/EOS configuration warnings for SigLIP;
 the text processor and image inference checks nevertheless completed.
+
+## Dashboard merge and sorting timing
+
+The dark dashboard, code-free local access, systemd boot service and quiet HOME
+control are merged into main, preserving the newer team assembly-document
+update. Reboot startup was checked on the Pi; the web service, camera and
+hardware-mode controller came back automatically. Pi power flags were `0x0`
+during the checks; this does not measure the separate servo supply.
+
+The operator reported sorting vibration remained. A slow eased trial and a
+brief pan release while tilted did not remove it. A second unloaded front-left
+trial with faster continuous easing and a 0.2-second tip pause reduced, but did
+not eliminate, vibration. This second timing is configured; loaded delivery
+is not established by that empty-tray observation. Tilt remains powered and
+pan releases at HOME and, with the new opt-in dump setting, during tipping.
+The new dump release has only one operator-observed unloaded route test; loaded
+alignment and the remaining routes need physical validation. See [the diagnosis](servo_vibration.md).
+
+
+The review update covers legacy database migration, pre-movement capture ordering,
+image retention, preserving original routes during corrections, human-labelled
+hardware-only ZIP export, mode/day separation, empty/unsupported percentage
+handling, authenticated-origin review writes and paginated route history.
+The longer 1.5-second dump test still showed brief HOME vibration according to
+the operator. No claim of complete vibration repair or trained-model accuracy
+improvement is supported by these software checks.

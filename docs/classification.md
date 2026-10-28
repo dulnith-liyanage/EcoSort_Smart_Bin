@@ -21,26 +21,31 @@ Normalised prompt embeddings are averaged within each class and normalised
 again. The five class embeddings are compared with each image. This replaces
 the previous single long list of unrelated objects per class.
 
-Every detected item now gets a best-match label among the four supported bins,
-even when the internal unsupported/unknown score is larger. In that case the
-interface displays **Best guess** and does not pretend the result is reliable.
-Scores are not renormalised to hide unsupported evidence. Empty-scene detection
-still controls whether there is an item to classify; this does not label every
-empty video frame as trash.
+The default `--routing-policy best-match` physically sorts every detected item
+into the best match among the four bins. It averages the four bin scores over
+`--stable-frames` observations (default 3) and chooses the largest average,
+even if the labels fluctuate or the internal unknown score is higher. Ties use
+the category order above. Original match scores remain visible; they are not
+renormalised or presented as measured accuracy.
 
-A physical sort requires all of the following:
+Confidence and margin do not block this default policy. Empty-tray detection,
+pause/stop, calibrated routes and cooldown still apply. After a route, the tray
+must be visibly empty for more than 12 frames before the next item can trigger
+a route. The dashboard displays **Waiting for an empty tray** during this lock.
+If an item remains after a dump, remove it before adding the next item. If an
+empty tray stays locked, pause and use **Reset empty tray** with the tray empty.
+Small or low-contrast objects can still be missed by the presence detector.
 
-- The selected bin beats all other classes, including the internal unknown group.
-- Its relative softmax score is at least `--threshold` (default 0.60).
-- Its lead over the second-best class, including unknown, is at least `--margin`
-  (default 0.15).
-- It wins `--stable-frames` consecutive eligible classifications (default 3).
+For the previous conservative policy, run with `--routing-policy confident`.
+It requires the winning bin to beat unknown, score at least `--threshold`
+(default 0.60), lead by `--margin` (default 0.15), and win three consecutive
+eligible frames. A rejected prediction clears that policy's history.
+Space requests a scan; keys 1–4 remain explicit manual bin tests.
+Automatic routing returns to level before panning and after dumping.
 
-A rejected prediction clears the stability history. The motors are not
-commanded for that prediction and the interface displays the uncertain best guess.
-Space requests a scan but cannot bypass these checks. Keys 1-4 remain explicit
-manual bin tests; they bypass recognition and can move hardware in real-driver
-mode. Automatic routing returns to level before panning and after dumping.
+Forced four-bin selection increases coverage, not proven accuracy. Unsupported
+objects will also be assigned a bin and may be misclassified. This prototype
+cannot identify hazardous waste reliably; keep hazardous items out of the demo.
 
 The thresholds are initial settings, not calibrated accuracy estimates. Adding
 unknown changes the score distribution, so old percentages are not directly

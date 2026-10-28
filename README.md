@@ -2,27 +2,56 @@
 
 ## Current physical calibration
 
-The operator reports a new horizontal position at **tilt command 125°** on
-26 October 2026. `servo_calibration.json` stores this HOME (pan 90°).
-Both control programs share it. Provisional tilt endpoints are **90° forward
-and 160° backward**, equal 35° command offsets from HOME. Shake is off and
-movement uses one-degree steps at 40 ms per step. The Pi was disconnected
-for this update: these routes have only been checked in software. Start with
-small unloaded movements to verify clearance and direction before testing
-item delivery. See [HOME calibration](docs/home_calibration.md).
+The level HOME is **pan 90° / tilt 125°**, saved in
+`servo_calibration.json` and shared by both controllers. Dump endpoints remain
+**90° forward and 160° backward**. Shake is off. Pan releases at HOME and,
+after alignment, throughout the dump and return to level. Tilt remains powered.
+An unloaded front-left test showed reduced tipping vibration without visible
+direction drift; loaded alignment with pan released remains unverified.
+
+Sorting now uses continuous eased motion with a configured peak limit of about
+67°/s (`step_delay: 0.015`) and a 1.5-second dump pause. In a supervised empty-tray
+test on 28 October the operator reported reduced, but not eliminated, vibration.
+The longer dumping pause and immediate pan release at HOME still need loaded checks;
+the operator reported brief HOME vibration remains. See
+[HOME calibration](docs/home_calibration.md) and
+[vibration observations](docs/servo_vibration.md).
 `--driver sim` remains available for camera/software checks; it does not prove
 that the physical assembly can reach those routes.
 
 Camera V2 observes a stationary tray. CLIP selects among four supported classes:
 **paper/cardboard, rigid plastic containers, metal cans, and fruit/vegetable
-scraps**. Every detected item gets a best-match bin label. Unsupported or ambiguous
-guesses require manual removal instead of automatic sorting. The
+scraps**. Every detected item is sorted into the bin with the highest average score over
+three frames, including low-confidence items. This does not guarantee correct
+classification. The tray must clear between items to prevent repeated dumps. The
 PCA9685 drives two MG996R servos in the existing metal pan/tilt kit.
+
+## Web dashboard
+
+The simple browser screen shows the tray camera, current classification, four
+bin counters, estimated recyclable/compostable percentages and a pause/resume button.
+Click a recent route to review its saved camera crop, confirm/correct the label
+and export reviewed images for future training. Reviews do not change the model. History and device details expand only
+when needed. No access code or Pi display is required on your trusted Wi-Fi.
+
+```sh
+# Local demo, without camera or motors:
+./venv/bin/python -m dashboard --demo --autostart
+```
+
+Open http://127.0.0.1:8080. For the Pi, the prepared systemd installer enables the
+website and physical sorter on boot after the initial empty-tray calibration.
+Installed and reboot-tested on the Pi on 28 October 2026. Use
+http://ecosort.local:8080 on the same trusted Wi-Fi. Pan releases its holding
+signal at HOME and during tipping to reduce observed holding vibration; tilt
+continues supporting the tray. Pan is re-engaged only after the tray is level.
+See [dashboard access and boot setup](docs/dashboard.md).
 
 ## Start here
 
 - [Existing hardware assembly and bin labels](docs/assembly.md)
 - [Classification, prompt groups and image evaluation](docs/classification.md)
+- [Image review, recycling estimates and future training](docs/image_reviews.md)
 - [Pi setup, wiring, calibration and running](docs/pi_setup.md)
 - [VNC desktop access and motor-free camera preview](docs/vnc_camera.md)
 - [Diagnose power loss during sorting](docs/shutdown_troubleshooting.md)
@@ -45,6 +74,7 @@ servo_calibration.json      Level HOME and provisional route commands
 setup_raspberry_pi.sh       Pi dependencies and I2C setup
 fix_openblas.sh             Optional repair for a specific BLAS error
 requirements.txt            Runtime dependencies
+dashboard/                  Local web UI, authenticated API and telemetry bridge
 scripts/                    Launchers, diagnostics, image evaluation and checks
 docs/                       Setup, calibration, classification and verification
 tests/                      Offline software regressions using fake hardware
