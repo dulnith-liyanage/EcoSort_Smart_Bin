@@ -11,16 +11,9 @@ well as correcting wrong ones. Reviews do not trigger motors or modify the
 running model. Old routes have no historical photo and cannot be image-reviewed.
 Manual terminal bin tests do not create these camera review records.
 
-**Today’s material split** counts completed hardware routes for the current
-Sri Lankan calendar day, using human labels where available and predictions
-otherwise. Paper, rigid plastic and metal are *potentially* recyclable; food is
-shown separately as compostable/outside dry recycling. Other/unsupported labels
-remain uncertain, not automatically non-recyclable. Reviewed empty-tray events
-are excluded from material percentages. No item routes means no percentage.
-These are counts, not mass measurements or verified recovery. Contamination and
-local collection requirements still determine whether material can be recycled.
-Bin counts retain the originally commanded routes, even after a label correction.
-Demo data stays separate. History CSV includes review fields alongside originals.
+**Today’s Material Split** shows completed hardware routes for the current Sri Lankan calendar day, using human-reviewed labels where available and predicted labels otherwise. Paper, rigid plastic, and metal are considered potentially recyclable, while food is categorized separately as compostable or outside dry recycling. Other or unsupported labels remain uncertain and are not automatically classified as non-recyclable.
+Reviewed empty-tray events are excluded from material percentages. If no items are routed, no percentage is displayed. All values represent item counts, not mass measurements or confirmed recycling outcomes. Actual recyclability depends on contamination levels and local collection requirements.
+Bin counts preserve the originally commanded routes, even when labels are corrected later. Demo data is kept separate from real data, and the history CSV includes review fields alongside the original records.
 
 ## Storage and privacy
 
