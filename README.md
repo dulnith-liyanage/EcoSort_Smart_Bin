@@ -6,7 +6,8 @@ The operator reports a new horizontal position at **tilt command 125°** on
 26 October 2026. `servo_calibration.json` stores this HOME (pan 90°).
 Both control programs share it. Provisional tilt endpoints are **90° forward
 and 160° backward**, equal 35° command offsets from HOME. Shake is off and
-movement uses one-degree steps at 40 ms per step. The Pi was disconnected
+movement uses eased acceleration/deceleration with a peak speed no greater
+than one degree per 40 ms. The Pi was disconnected
 for this update: these routes have only been checked in software. Start with
 small unloaded movements to verify clearance and direction before testing
 item delivery. See [HOME calibration](docs/home_calibration.md).

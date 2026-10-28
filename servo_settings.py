@@ -39,8 +39,11 @@ class Calibration:
     shake_degrees: int = 10
     step_delay: float = 0.009
     release_pan_at_home: bool = False
+    smooth_motion: bool = False
 
     def __post_init__(self):
+        if type(self.smooth_motion) is not bool:
+            raise ValueError('smooth_motion must be true or false.')
         if type(self.release_pan_at_home) is not bool:
             raise ValueError('release_pan_at_home must be true or false.')
         for value in (self.pan_home, self.tilt_home):
@@ -96,7 +99,37 @@ def load_calibration(path=None):
     return Calibration(data['pan_home'], data['tilt_home'],
                        data.get('forward_tilt'), data.get('backward_tilt'),
                        data.get('shake_degrees', 10), data.get('step_delay', 0.009),
-                       data.get('release_pan_at_home', False))
+                       data.get('release_pan_at_home', False), data.get('smooth_motion', False))
+
+
+def motion_steps(start, target, step_delay, smooth=False):
+    """Positions/delays for one axis; smooth motion keeps the old peak speed cap.
+
+    The quintic profile starts/ends with zero commanded velocity and acceleration.
+    Its peak normalised slope is 1.875, so the longer duration prevents it from
+    exceeding the legacy speed of one degree per step_delay. This changes the
+    command trajectory, not the physical servo's internal feedback controller.
+    """
+    for value in (start,target,step_delay):
+        if isinstance(value,bool) or not isinstance(value,(int,float)) or not math.isfinite(value):
+            raise ValueError('Motion parameters must be finite numbers.')
+    if not 0 <= start <= 180 or not 0 <= target <= 180 or step_delay <= 0:
+        raise ValueError('Invalid motion range or timing.')
+    if start == target:
+        return
+    if not smooth:
+        direction=1 if target>start else -1
+        for angle in range(int(start),int(target)+direction,direction):
+            yield angle,step_delay
+        return
+    duration=max(0.20,1.875*abs(target-start)*step_delay)
+    intervals=math.ceil(duration/0.02)
+    delay=duration/intervals
+    for index in range(1,intervals+1):
+        t=index/intervals
+        fraction=t*t*t*(10+t*(-15+6*t))
+        angle=target if index==intervals else start+(target-start)*fraction
+        yield angle,delay
 
 
 class BufferCompatibleI2C:

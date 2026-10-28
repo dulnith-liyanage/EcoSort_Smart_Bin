@@ -57,3 +57,18 @@ HOME, strict Boolean configuration and camera warmup preceding calibration.
 They do not measure vibration, torque or classification accuracy.
 
 Power wiring reference: [Adafruit PCA9685 servo power guidance](https://learn.adafruit.com/16-channel-pwm-servo-driver/hooking-it-up).
+
+## Smoother movement during sorting
+
+The operator subsequently reported vibration both in motion and while tilted.
+`smooth_motion: true` now uses the same eased position profile in both motor
+controllers. The command velocity and acceleration ramp from/to zero at each
+endpoint. Updates are about 20 ms apart, and profile duration is lengthened so
+the peak speed does not exceed the previous one-degree-per-40-ms limit. Sorting
+therefore takes longer, with the same angles, no additional shake and the same
+HOME behaviour.
+
+This is a command-motion improvement, not proof that a loaded servo will stop
+hunting at a stationary position. Pan release at a tilted bin remains disabled
+pending a supervised empty-tray test for both vibration and directional drift.
+Tilt holding is never disabled during a dump.

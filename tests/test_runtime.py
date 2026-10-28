@@ -157,6 +157,23 @@ class RuntimeTests(unittest.TestCase):
                 self.assertEqual(tilt[-1],125)
                 self.assertEqual((controller.current_pan,controller.current_tilt),(90,125))
 
+    def test_smooth_routes_in_both_controllers_keep_endpoints_and_tilt_support(self):
+        saved=servo_settings.Calibration(90,125,90,160,0,.04,True,True)
+        with patch.object(servo_settings,'load_calibration',return_value=saved):
+            controllers=[live.DirectPca9685Controller(),calibration.ServoPanTilt()]
+        for controller in controllers:
+            if isinstance(controller,calibration.ServoPanTilt):controller.go_home()
+            self.events.clear()
+            if isinstance(controller,live.DirectPca9685Controller):
+                controller.trigger_sort('paper',live.CATEGORY_CONFIG['paper'])
+            else:controller.dump_bin(1)
+            self.assertIn((0,135),self.events)
+            self.assertIn((1,90),self.events)
+            self.assertEqual(self.events[-1],(0,None))
+            self.assertNotIn((1,None),self.events)
+            self.assertTrue(all(0<=angle<=180 for _,angle in self.events if angle is not None))
+            self.assertEqual((controller.current_pan,controller.current_tilt),(90,125))
+
     def test_manual_tilt_reengages_pan_before_leaving_level(self):
         saved=servo_settings.Calibration(90,125,90,160,0,0.04,True)
         with patch.object(servo_settings,'load_calibration',return_value=saved):

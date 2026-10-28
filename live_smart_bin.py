@@ -247,11 +247,11 @@ class DirectPca9685Controller(BaseServoController):
         to_ang = int(to_ang)
         if from_ang == to_ang:
             return
-        step = 1 if to_ang > from_ang else -1
         step_delay = max(step_delay or self.calibration.step_delay, self.calibration.step_delay)
-        for a in range(from_ang, to_ang + step, step):
-            self.kit.servo[channel].angle = a
-            time.sleep(step_delay)
+        for angle,delay in servo_settings.motion_steps(
+                from_ang,to_ang,step_delay,self.calibration.smooth_motion):
+            self.kit.servo[channel].angle = angle
+            time.sleep(delay)
 
     def trigger_sort(self, cat_key, cfg):
         target_pan, target_tilt, shake_tilt = self.calibration.route(cfg)

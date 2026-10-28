@@ -145,11 +145,11 @@ class ServoPanTilt:
         to_ang = int(max(0, min(180, to_ang)))
         if from_ang == to_ang:
             return
-        step = 1 if to_ang > from_ang else -1
         step_delay = max(step_delay or self.calibration.step_delay, self.calibration.step_delay)
-        for a in range(from_ang, to_ang + step, step):
-            self.kit.servo[channel].angle = a
-            time.sleep(step_delay)
+        for angle,delay in servo_settings.motion_steps(
+                from_ang,to_ang,step_delay,self.calibration.smooth_motion):
+            self.kit.servo[channel].angle = angle
+            time.sleep(delay)
 
     def set_pan(self, angle, smooth=True, step_delay=None):
         """Sets Pan (Azimuth) angle [0 - 180 deg]."""
