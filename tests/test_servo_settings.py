@@ -10,6 +10,13 @@ from servo_settings import Calibration, BufferCompatibleI2C, load_calibration, p
 
 
 class CalibrationTests(unittest.TestCase):
+    def test_quiet_pan_flag_is_opt_in_and_strict_boolean(self):
+        self.assertFalse(Calibration().release_pan_at_home)
+        for value in [1,'yes',None]:
+            with self.assertRaises(ValueError):
+                Calibration(release_pan_at_home=value)
+        self.assertTrue(load_calibration().release_pan_at_home)
+
     def test_default_preserves_logical_routes(self):
         self.assertEqual(Calibration().route({'pan': 135, 'tilt': 35}), (135, 35, 25))
 

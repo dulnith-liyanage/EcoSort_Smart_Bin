@@ -19,6 +19,25 @@ scraps**. Every detected item gets a best-match bin label. Unsupported or ambigu
 guesses require manual removal instead of automatic sorting. The
 PCA9685 drives two MG996R servos in the existing metal pan/tilt kit.
 
+## Web dashboard
+
+The simple browser screen shows the tray camera, current classification, four
+bin counters and a pause/resume button. History and device details expand only
+when needed. No access code or Pi display is required on your trusted Wi-Fi.
+
+```sh
+# Local demo, without camera or motors:
+./venv/bin/python -m dashboard --demo --autostart
+```
+
+Open http://127.0.0.1:8080. For the Pi, the prepared systemd installer enables the
+website and physical sorter on boot after the initial empty-tray calibration.
+Installed and reboot-tested on the Pi on 28 October 2026. Use
+http://ecosort.local:8080 on the same trusted Wi-Fi. Pan releases its holding
+signal at HOME to avoid the operator-confirmed idle vibration; tilt still holds
+the tray level.
+See [dashboard access and boot setup](docs/dashboard.md).
+
 ## Start here
 
 - [Existing hardware assembly and bin labels](docs/assembly.md)
@@ -45,6 +64,7 @@ servo_calibration.json      Level HOME and provisional route commands
 setup_raspberry_pi.sh       Pi dependencies and I2C setup
 fix_openblas.sh             Optional repair for a specific BLAS error
 requirements.txt            Runtime dependencies
+dashboard/                  Local web UI, authenticated API and telemetry bridge
 scripts/                    Launchers, diagnostics, image evaluation and checks
 docs/                       Setup, calibration, classification and verification
 tests/                      Offline software regressions using fake hardware

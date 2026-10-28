@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#101612"><title>EcoSort</title><link rel="stylesheet" href="/style.css"><script defer src="/app.js"></script></head>
+<body>
+<header class="header"><a href="/" class="brand" aria-label="EcoSort home"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 3C10 2 3 5 4 13c1 8 13 8 15-2l1-8ZM4 21 15 9"/></svg>EcoSort<span>.</span></a><span class="connection" id="connection">Connecting…</span></header>
+<main>
+<div class="notice" id="notice" role="status" hidden></div>
+<div class="intro"><div><h1>Live sorting</h1><p>Place one item on the tray.</p></div><span class="mode" id="mode" hidden>Demo</span></div>
+<section class="workspace" aria-label="Live sorting">
+<article class="camera-card"><div class="card-top"><h2>Tray camera</h2><span id="camera-status">Standby</span></div><div class="camera" id="camera"><img id="frame" alt="Live view of the sorting tray" hidden><div class="placeholder" id="placeholder"><svg viewBox="0 0 80 80" aria-hidden="true"><rect x="9" y="18" width="62" height="46" rx="9"/><path d="M28 18l5-8h14l5 8"/><circle cx="40" cy="40" r="13"/></svg><strong id="placeholder-title">Ready when the Pi is.</strong><p id="placeholder-text">The camera will appear here when sorting starts.</p></div><span class="frame-note" id="frame-note" hidden>Last frame · stream delayed</span></div></article>
+<article class="result-card"><div><span class="eyebrow">CURRENT ITEM</span><div id="material-icon" class="material-icon" aria-hidden="true">—</div><h2 id="category">Waiting for an item</h2><p id="prediction">One item at a time, in the centre of the tray.</p></div><div class="status-block"><span class="status-label" id="status-label">Starting up</span><p id="message">Connecting to EcoSort…</p></div><button id="control" class="primary" disabled>Connecting…</button><button id="reset" class="text-button" hidden>Reset empty tray</button><button id="sample" class="text-button" hidden>Try a sample item</button><p class="control-note" id="control-note">Sorting starts automatically once the Pi is ready.</p></article>
+</section>
+<section class="counts-section" aria-label="Today's bin counts"><div class="section-title"><h2>Today’s routes</h2><span>Completed commands, not verified deliveries</span></div><div class="bins" id="bins"></div></section>
+<section class="extras"><details id="history"><summary>Recent activity</summary><div class="details-body"><div id="events"></div><a class="download" href="/api/history.csv" download>Download history CSV</a></div></details><details id="device"><summary>Device details</summary><div class="details-body"><dl id="device-info"></dl><p class="fine-print">Servo angles are commands, not measured positions. Match scores are not measured accuracy.</p></div></details></section>
+<footer><span>EcoSort · Team EN12</span><span id="updated">Local processing</span></footer>
+</main>
+<div id="toast" role="status" hidden></div>
+</body></html>
