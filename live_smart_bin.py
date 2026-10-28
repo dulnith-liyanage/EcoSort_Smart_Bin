@@ -264,13 +264,14 @@ class DirectPca9685Controller(BaseServoController):
         # Step 1: Pan with tilt at the calibrated level position.
         self._smooth_move(self.pan_ch, self.current_pan, target_pan)
         self.current_pan = target_pan
-        time.sleep(0.20)
+        if not self.calibration.smooth_motion:
+            time.sleep(0.20)
 
         # Step 2: Tilt downward along pan (forward 35° or backward 145°)
         log_info(f"[RPi I2C PCA9685] Tilting tray to {target_tilt}° to drop waste into {bin_pos}...")
         self._smooth_move(self.tilt_ch, self.current_tilt, target_tilt)
         self.current_tilt = target_tilt
-        time.sleep(1.0)
+        time.sleep(self.calibration.dump_hold_seconds)
 
         if shake_tilt != target_tilt:
             self._smooth_move(self.tilt_ch, target_tilt, shake_tilt)
@@ -283,7 +284,8 @@ class DirectPca9685Controller(BaseServoController):
         # Step 4: Return tilt to the calibrated HOME.
         self._smooth_move(self.tilt_ch, self.current_tilt, self.calibration.tilt_home)
         self.current_tilt = self.calibration.tilt_home
-        time.sleep(0.20)
+        if not self.calibration.smooth_motion:
+            time.sleep(0.20)
 
         # Step 5: Return pan to the calibrated HOME.
         self._smooth_move(self.pan_ch, self.current_pan, self.calibration.pan_home)

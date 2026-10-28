@@ -58,17 +58,26 @@ They do not measure vibration, torque or classification accuracy.
 
 Power wiring reference: [Adafruit PCA9685 servo power guidance](https://learn.adafruit.com/16-channel-pwm-servo-driver/hooking-it-up).
 
-## Smoother movement during sorting
+## Sorting vibration tests and current timing
 
 The operator subsequently reported vibration both in motion and while tilted.
-`smooth_motion: true` now uses the same eased position profile in both motor
-controllers. The command velocity and acceleration ramp from/to zero at each
-endpoint. Updates are about 20 ms apart, and profile duration is lengthened so
-the peak speed does not exceed the previous one-degree-per-40-ms limit. Sorting
-therefore takes longer, with the same angles, no additional shake and the same
-HOME behaviour.
+Two supervised front-left, empty-tray tests were completed:
 
-This is a command-motion improvement, not proof that a loaded servo will stop
-hunting at a stationary position. Pan release at a tilted bin remains disabled
-pending a supervised empty-tray test for both vibration and directional drift.
-Tilt holding is never disabled during a dump.
+1. A slow eased profile did not noticeably help. Briefly releasing pan while
+   tilted also failed to stop the vibration. Tilt stayed powered throughout.
+2. A faster continuous eased profile with a 0.2-second dump pause reduced the
+   vibration according to the operator, but did not eliminate it.
+
+The second timing is now configured in both controllers: `smooth_motion: true`,
+`step_delay: 0.015` and `dump_hold_seconds: 0.2`. Velocity and acceleration ramp
+from/to zero at endpoints, with roughly 20-ms command updates. Peak command
+speed is bounded by 1 / step_delay (about 67 degrees/second). Angles are unchanged. Extra stationary alignment waits are omitted with this
+continuous profile; the configured dump pause remains.
+This is faster than the earlier 40-ms-per-degree setting; it is not the slower
+trial profile. The shorter pause has not been validated for loaded delivery.
+
+Pan remains powered away from HOME: releasing it at the bin did not solve the
+vibration, and could permit direction drift with a load. Tilt holding is never
+disabled during a dump. These changes reduce the observed problem; they are not
+a verified complete repair. The servo supply voltage/current and mechanical
+load were not measured. Do not claim the remaining vibration is software-fixed.

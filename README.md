@@ -2,15 +2,17 @@
 
 ## Current physical calibration
 
-The operator reports a new horizontal position at **tilt command 125°** on
-26 October 2026. `servo_calibration.json` stores this HOME (pan 90°).
-Both control programs share it. Provisional tilt endpoints are **90° forward
-and 160° backward**, equal 35° command offsets from HOME. Shake is off and
-movement uses eased acceleration/deceleration with a peak speed no greater
-than one degree per 40 ms. The Pi was disconnected
-for this update: these routes have only been checked in software. Start with
-small unloaded movements to verify clearance and direction before testing
-item delivery. See [HOME calibration](docs/home_calibration.md).
+The level HOME is **pan 90° / tilt 125°**, saved in
+`servo_calibration.json` and shared by both controllers. Dump endpoints remain
+**90° forward and 160° backward**. Shake is off. Pan releases only at HOME;
+tilt continues supporting the tray.
+
+Sorting now uses continuous eased motion with a configured peak limit of about
+67°/s (`step_delay: 0.015`) and a 0.2-second dump pause. In a supervised empty-tray
+test on 28 October the operator reported reduced, but not eliminated, vibration.
+Loaded delivery with the shorter pause still needs checking. See
+[HOME calibration](docs/home_calibration.md) and
+[vibration observations](docs/servo_vibration.md).
 `--driver sim` remains available for camera/software checks; it does not prove
 that the physical assembly can reach those routes.
 

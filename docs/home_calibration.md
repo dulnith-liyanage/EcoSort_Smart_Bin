@@ -26,7 +26,10 @@ to command 160. Intermediate values interpolate on each side of HOME.
 These equal 35-degree command offsets are provisional, not measured tray
 inclinations. The original 55-degree slope would require command 180 on one
 side, leaving no command margin. Do not restore the old shake excursion.
-Shake remains zero; movement uses one-degree steps at 40 milliseconds per step.
+Shake remains zero. The 28 October timing update uses eased motion with a
+peak command limit of about 67 degrees/second and a 0.2-second dump pause.
+The operator observed less vibration in an unloaded trial; loaded release
+with this shorter timing still needs checking.
 Both controllers level before panning, tilt to the route, level again, then
 return pan to centre. The complete route is checked before movement. Invalid
 angles are rejected rather than clipped or silently simulated.

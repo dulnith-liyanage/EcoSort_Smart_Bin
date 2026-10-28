@@ -174,6 +174,20 @@ class RuntimeTests(unittest.TestCase):
             self.assertTrue(all(0<=angle<=180 for _,angle in self.events if angle is not None))
             self.assertEqual((controller.current_pan,controller.current_tilt),(90,125))
 
+    def test_continuous_route_avoids_extra_stationary_holds(self):
+        saved=servo_settings.Calibration(90,125,90,160,0,.015,True,True,.2)
+        with patch.object(servo_settings,'load_calibration',return_value=saved):
+            controllers=[live.DirectPca9685Controller(),calibration.ServoPanTilt()]
+        for controller in controllers:
+            if isinstance(controller,calibration.ServoPanTilt):controller.go_home()
+            with patch('time.sleep') as wait:
+                if isinstance(controller,live.DirectPca9685Controller):
+                    controller.trigger_sort('paper',live.CATEGORY_CONFIG['paper'])
+                else:controller.dump_bin(1)
+            stationary_delays=sum(call.args[0] for call in wait.call_args_list if call.args[0]>.020001)
+            self.assertLessEqual(stationary_delays,.600001)
+            self.assertEqual((controller.current_pan,controller.current_tilt),(90,125))
+
     def test_manual_tilt_reengages_pan_before_leaving_level(self):
         saved=servo_settings.Calibration(90,125,90,160,0,0.04,True)
         with patch.object(servo_settings,'load_calibration',return_value=saved):

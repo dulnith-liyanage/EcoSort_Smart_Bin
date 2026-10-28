@@ -4,8 +4,9 @@
   "forward_tilt": 90,
   "backward_tilt": 160,
   "shake_degrees": 0,
-  "step_delay": 0.04,
-  "note": "HOME pan 90 / tilt 125, forward 90 / backward 160; shake off. On 28 October, operator confirmed vibration stops with pan PWM released and tilt still holding level. Release only pan at HOME; re-enable before movement. Physical item delivery is not measured.",
+  "step_delay": 0.015,
+  "note": "HOME pan 90 / tilt 125; dump endpoints 90 / 160; shake off. Pan releases only at HOME while tilt keeps supporting the tray. Operator reported the continuous faster test with a 0.2-second dump pause reduced, but did not eliminate, sorting vibration on 28 October 2026. Loaded delivery with this timing needs checking.",
   "release_pan_at_home": true,
-  "smooth_motion": true
+  "smooth_motion": true,
+  "dump_hold_seconds": 0.2
 }

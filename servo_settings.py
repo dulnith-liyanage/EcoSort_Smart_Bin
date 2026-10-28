@@ -40,8 +40,12 @@ class Calibration:
     step_delay: float = 0.009
     release_pan_at_home: bool = False
     smooth_motion: bool = False
+    dump_hold_seconds: float = 1.0
 
     def __post_init__(self):
+        if (isinstance(self.dump_hold_seconds,bool) or not isinstance(self.dump_hold_seconds,(int,float))
+                or not math.isfinite(self.dump_hold_seconds) or not 0.1 <= self.dump_hold_seconds <= 2):
+            raise ValueError('dump_hold_seconds must be between 0.1 and 2 seconds.')
         if type(self.smooth_motion) is not bool:
             raise ValueError('smooth_motion must be true or false.')
         if type(self.release_pan_at_home) is not bool:
@@ -99,7 +103,8 @@ def load_calibration(path=None):
     return Calibration(data['pan_home'], data['tilt_home'],
                        data.get('forward_tilt'), data.get('backward_tilt'),
                        data.get('shake_degrees', 10), data.get('step_delay', 0.009),
-                       data.get('release_pan_at_home', False), data.get('smooth_motion', False))
+                       data.get('release_pan_at_home', False), data.get('smooth_motion', False),
+                       data.get('dump_hold_seconds', 1.0))
 
 
 def motion_steps(start, target, step_delay, smooth=False):

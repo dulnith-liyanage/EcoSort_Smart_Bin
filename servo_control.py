@@ -225,12 +225,13 @@ class ServoPanTilt:
         # Step 1: Pan to diagonal with tilt at the saved level position.
         log_info(f"1. Aligning Pan to {pan}° along {b['pos']} diagonal...")
         self.set_pan(pan)
-        time.sleep(0.2)
+        if not self.calibration.smooth_motion:
+            time.sleep(0.2)
 
         # Step 2: Tilt tray to dump angle
         log_info(f"2. Tilting to {tilt}° ({b['mode']}) to dump waste...")
         self.set_tilt(tilt)
-        time.sleep(1.0)
+        time.sleep(self.calibration.dump_hold_seconds)
 
         if shake != tilt:
             log_info("3. Calibrated shake...")
@@ -242,7 +243,8 @@ class ServoPanTilt:
         # Step 4: Return to calibrated level position.
         log_info(f"4. Returning tilt to calibrated HOME {self.calibration.tilt_home}°...")
         self.set_tilt(self.calibration.tilt_home)
-        time.sleep(0.2)
+        if not self.calibration.smooth_motion:
+            time.sleep(0.2)
 
         # Step 5: Return pan to calibrated centre.
         log_info(f"5. Returning pan to calibrated HOME {self.calibration.pan_home}°...")

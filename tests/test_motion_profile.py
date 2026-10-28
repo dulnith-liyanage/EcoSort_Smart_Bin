@@ -26,6 +26,16 @@ class MotionProfileTests(unittest.TestCase):
                 self.assertLess(speed[-1],max(speed)/10)
                 self.assertGreaterEqual(sum(delay for _,delay in steps),abs(target-start)*.04)
 
+    def test_deployed_profile_stays_under_its_configured_speed_cap(self):
+        from servo_settings import load_calibration
+        calibration=load_calibration()
+        for start,target in [(90,135),(90,45),(125,90),(125,160)]:
+            previous=start
+            for angle,delay in motion_steps(start,target,calibration.step_delay,calibration.smooth_motion):
+                self.assertLessEqual(abs(angle-previous)/delay,1/calibration.step_delay+1e-6)
+                previous=angle
+            self.assertEqual(previous,target)
+
     def test_stationary_move_does_not_write(self):
         self.assertEqual(list(motion_steps(125,125,.04,True)),[])
 
