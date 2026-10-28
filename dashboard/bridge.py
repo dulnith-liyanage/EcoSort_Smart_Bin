@@ -11,11 +11,12 @@ PREFIX = '@ECOSORT@'
 
 
 class DashboardBridge:
-    def __init__(self, frame_path, input_stream=None, output_stream=None):
+    def __init__(self, frame_path, input_stream=None, output_stream=None, auto_sort=False):
         self.frame_path = Path(frame_path)
         self.output = output_stream or sys.stdout
         self.commands = queue.Queue(maxsize=16)
         self.paused = True
+        self.auto_sort = auto_sort
         self.stopping = False
         self.last_frame = 0.0
         threading.Thread(target=self._read_commands,
@@ -26,6 +27,7 @@ class DashboardBridge:
             try:
                 command = json.loads(line).get('action')
                 if command in {'pause', 'stop'}:
+                    self.auto_sort = False
                     self.paused = True
                 if command == 'stop':
                     self.stopping = True
@@ -36,6 +38,12 @@ class DashboardBridge:
         # Losing the supervisor must not leave autonomous sorting enabled.
         self.paused = True
         self.stopping = True
+
+    def calibrated(self):
+        """Enable boot routing only after a complete empty-tray reference."""
+        if self.auto_sort and not self.stopping:
+            self.paused = False
+        self.auto_sort = False
 
     def poll(self):
         result = []

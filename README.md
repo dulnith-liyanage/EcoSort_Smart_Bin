@@ -21,17 +21,19 @@ PCA9685 drives two MG996R servos in the existing metal pan/tilt kit.
 
 ## Web dashboard
 
-A local browser dashboard provides the tray preview, classification scores,
-four-bin command counts, activity export and Pi health. Try the design with:
+The simple browser screen shows the tray camera, current classification, four
+bin counters and a pause/resume button. History and device details expand only
+when needed. No access code or Pi display is required on your trusted Wi-Fi.
 
 ```sh
-./venv/bin/python -m dashboard --demo
+# Local demo, without camera or motors:
+./venv/bin/python -m dashboard --demo --autostart
 ```
 
-Open http://127.0.0.1:8080 and enter the access code printed in the terminal.
-See [dashboard setup and Pi access](docs/dashboard.md) for live observation and
-explicitly enabled physical sessions. The server does not start motors or the
-camera on launch.
+Open http://127.0.0.1:8080. For the Pi, the prepared systemd installer enables the
+website and physical sorter on boot after the initial empty-tray calibration.
+It has not been installed or tested on the powered-off Pi yet.
+See [dashboard access and boot setup](docs/dashboard.md).
 
 ## Start here
 

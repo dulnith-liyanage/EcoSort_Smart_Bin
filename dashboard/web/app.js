@@ -1,200 +1,94 @@
 'use strict';
-const $ = (id) => document.getElementById(id);
-const icons = {paper:'paper', plastic:'bottle', metal:'can', food:'food'};
-const names = {paper:'Paper & cardboard', plastic:'Rigid plastic', metal:'Metal cans', food:'Fruit & veg scraps'};
-const positions = {paper:'Front-left', plastic:'Front-right', metal:'Rear-left', food:'Rear-right'};
-const phases = {idle:'Ready when you are', loading:'Loading model', calibrating:'Learning the empty tray', observing:'Observing the tray', ready:'Routing enabled', sorting:'Route in progress', cooldown:'Returning to observation', stopping:'Finishing this session', error:'Session needs attention'};
-let latest = null, connected = false, pending = false, view = 'overview', dialogAction = null, guides = true;
-let frameLoading = false, renderedFrameAt = null, toastTimer, activitySignature = '';
-const esc = (value) => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const icon = (name) => `<svg aria-hidden="true"><use href="#i-${name}"/></svg>`;
-const pct = (value) => Number.isFinite(value) ? `${Math.round(value * 100)}%` : '—';
-const timeLabel = (at) => new Date(at*1000).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',second:'2-digit'});
-const duration = (seconds) => Number.isFinite(seconds) ? `${Math.floor(seconds/3600)}h ${Math.floor(seconds%3600/60)}m` : 'Unavailable';
-function toast(message) { $('toast').textContent = message; $('toast').hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => {$('toast').hidden = true;}, 5000); }
-async function api(path, body) {
-  const response = await fetch(path, body ? {method:'POST',headers:{'Content-Type':'application/json','X-EcoSort-Request':'1'},body:JSON.stringify(body)} : {});
-  const data = await response.json();
-  if (!response.ok) {
-    if (response.status === 401 && path !== '/api/login' && !$('login-dialog').open) $('login-dialog').showModal();
-    throw new Error(data.error || 'Request failed.');
-  }
+const $ = id => document.getElementById(id);
+const labels = {paper:'Paper & cardboard',plastic:'Rigid plastic',metal:'Metal cans',food:'Fruit & veg scraps'};
+const colors = {paper:'#2b64b5',plastic:'#bf681f',metal:'#20815d',food:'#b94942'};
+const positions = {paper:'Front-left',plastic:'Front-right',metal:'Rear-left',food:'Rear-right'};
+const symbols = {
+  paper:'<path d="M6 3h9l4 4v14H6V3Zm9 0v5h4M9 12h7m-7 4h5"/>',
+  plastic:'<path d="M10 3h4v5l3 4v8H7v-8l3-4V3Zm0 3h4M7 14h10"/>',
+  metal:'<ellipse cx="12" cy="5" rx="6" ry="2"/><path d="M6 5v14c0 3 12 3 12 0V5M9 11v5"/>',
+  food:'<path d="M12 7c-9-5-12 9-5 13 2 1 3 0 5 0s3 1 5 0c7-4 4-18-5-13Zm0 0c0-5 3-5 5-5 0 4-2 5-5 5Z"/>'
+};
+const phases = {idle:'Not running',loading:'Starting up',calibrating:'Preparing the tray',ready:'Sorting is on',observing:'Sorting paused',sorting:'Sorting this item',cooldown:'Returning to ready',stopping:'Finishing the current cycle',error:'Needs attention'};
+let latest, connected=false, pending=false, frameLoading=false, frameAt=null, historyKey='', toastTimer;
+const esc = value => String(value ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const score = value => Number.isFinite(value) ? `${Math.round(value*100)}%` : '—';
+function toast(message) { $('toast').textContent=message;$('toast').hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>{$('toast').hidden=true;},5000); }
+async function api(path,body) {
+  const response=await fetch(path,body?{method:'POST',headers:{'Content-Type':'application/json','X-EcoSort-Request':'1'},body:JSON.stringify(body)}:{});
+  const data=await response.json();
+  if(!response.ok)throw new Error(data.error||'Request failed.');
   return data;
 }
-function setView(name) {
-  view = name;
-  const titles = {overview:['LIVE OPERATIONS','A clearer view of every sort.','Watch the tray, understand the decision, follow the route.'], activity:['LOCAL EVENT HISTORY','The story behind every route.','Inspect completed commands and export your demonstration log.'], system:['DEVICE & CALIBRATION','Know what is happening underneath.','Real device readings and saved calibration, in one place.']};
-  if (!titles[name]) return;
-  for (const section of ['overview','activity','system']) $(`${section}-view`).hidden = section !== name;
-  document.querySelectorAll('.nav').forEach(b => {b.classList.toggle('active',b.dataset.view===name); if(b.dataset.view===name)b.setAttribute('aria-current','page');else b.removeAttribute('aria-current');});
-  [$('page-eyebrow').textContent,$('page-title').textContent,$('page-description').textContent] = titles[name];
-  $('breadcrumb').textContent = {overview:'Overview', activity:'Activity log', system:'System & calibration'}[name];
-  if (name === 'overview' && latest) refreshFrame(latest);
+function details(entries) { $('device-info').innerHTML=entries.map(([name,value])=>`<dt>${esc(name)}</dt><dd>${esc(value)}</dd>`).join(''); }
+function camera(data) {
+  const s=data.state, fresh=s.frame_at && Date.now()/1000-s.frame_at<8 && !['idle','error'].includes(s.phase);
+  $('camera-status').textContent=data.demo?'Sample view':fresh?'Live':s.frame_at?'Stream delayed':'Standby';
+  $('frame-note').hidden=fresh||!s.frame_at;
+  $('placeholder-title').textContent=data.demo?'No camera in demo mode.':s.phase==='loading'?'Preparing the camera…':'Ready when the Pi is.';
+  $('placeholder-text').textContent=data.demo?'Try a sample item to explore the simpler dashboard.':'The camera will appear here when sorting starts.';
+  if(!fresh){const showLast=frameAt&&s.frame_at&&!['idle','error'].includes(s.phase);$('frame').hidden=!showLast;$('placeholder').hidden=Boolean(showLast);return;}
+  if(frameLoading||frameAt===s.frame_at)return;
+  frameLoading=true;
+  $('frame').onload=()=>{frameLoading=false;frameAt=s.frame_at;$('frame').hidden=false;$('placeholder').hidden=true;};
+  $('frame').onerror=()=>{frameLoading=false;};
+  $('frame').src=`/api/frame.jpg?t=${s.frame_at}`;
 }
-document.querySelectorAll('[data-view]').forEach(b => b.addEventListener('click',()=>setView(b.dataset.view)));
-function table(events, recent=false) {
-  if (!events.length) return `<div class="empty-state">${icon('clock')}<strong>No route cycles yet</strong>Completed commands will appear here. Predictions alone do not add to the count.</div>`;
-  return `<div class="table-wrap"><table><thead><tr><th>Material</th><th>Time</th><th>Match score</th><th>Destination</th><th>Outcome</th></tr></thead><tbody>${events.map(e => `<tr><td><span class="table-material ${esc(e.category)}">${icon(icons[e.category] || 'paper')}${esc(names[e.category] || e.category)}</span></td><td>${esc(timeLabel(e.at))}${recent?'':`<br><span class="mode-tag">${esc(new Date(e.at*1000).toLocaleDateString())}</span>`}</td><td><span class="table-score"><i><b data-width="${Number(e.score)*100}"></b></i>${pct(e.score)}</span></td><td>${esc(positions[e.category])}</td><td><span class="outcome">${e.mode==='hardware'?'Command completed':'Simulated cycle'}</span><br><span class="mode-tag">${e.mode==='demo'?'DEMO':e.mode==='observe'?'NO MOTOR OUTPUT':'DELIVERY UNVERIFIED'}</span></td></tr>`).join('')}</tbody></table></div>`;
-}
-function renderActivity(data) {
-  const category = $('filter').value, mode = $('mode-filter').value;
-  const signature = `${category}:${mode}:${data.events.map(e=>e.id).join(',')}`;
-  if (signature === activitySignature) return;
-  activitySignature = signature;
-  $('recent-events').innerHTML = table(data.events.slice(0,4), true);
-  $('all-events').innerHTML = table(data.events.filter(e => (category==='all'||e.category===category) && (mode==='all'||e.mode===mode)));
-  document.querySelectorAll('[data-width]').forEach(el=>{el.style.width=`${Math.max(0,Math.min(100,Number(el.dataset.width)||0))}%`;});
-}
-$('filter').addEventListener('change',()=>{if(latest)renderActivity(latest);});
-$('mode-filter').addEventListener('change',()=>{if(latest)renderActivity(latest);});
-function details(id, entries) { $(id).innerHTML = entries.map(([key,value]) => `<div class="detail-row"><span>${esc(key)}</span><strong>${esc(value)}</strong></div>`).join(''); }
 function render(data) {
-  latest = data;
-  const s = data.state, active = !['idle','error'].includes(s.phase), busy = ['loading','stopping'].includes(s.phase);
-  const score = s.category ? s.score : null;
-  $('demo-banner').hidden = !data.demo;
-  $('connection').textContent = data.demo ? 'Demo connected' : 'Device connected';
-  $('connection').className = 'badge';
-  $('sidebar-host').textContent = data.demo ? 'Design preview' : data.hostname;
-  $('side-dot').style.background = '#a6cba0';
-  $('total').textContent = Object.values(data.counts).reduce((a,b)=>a+b,0);
-  $('count-note').textContent = data.mode === 'hardware' ? 'Physical commands · delivery unverified' : data.demo ? 'Sample cycles · demonstration data' : 'Simulated commands · no motor output';
-  $('metric-score').textContent = pct(score);
-  $('latency').innerHTML = Number.isFinite(s.inference_ms) ? `${Math.round(s.inference_ms)}<small>ms</small>` : '—';
-  $('temperature').innerHTML = Number.isFinite(data.health.temperature) ? `${data.health.temperature.toFixed(1)}<small>°C</small>` : '—';
-  $('temp-note').textContent = data.health.temperature===null ? 'Not available on this host' : 'Device temperature · read every 10 seconds';
-  $('phase-label').textContent = phases[s.phase] || s.phase;
-  $('mode-label').textContent = data.demo ? 'Design preview · no hardware' : data.mode === 'hardware' && active ? 'Physical motors · PCA9685' : active ? 'Observation · motors inactive' : 'Motors inactive';
-  $('start-session').hidden = active;
-  $('stop-session').hidden = !active;
-  $('pause-resume').hidden = !active;
-  $('pause-resume').disabled = busy || pending || !connected;
-  $('pause-resume').innerHTML = `${icon(s.paused?'play':'pause')}<span>${s.paused?'Enable routing':'Pause routing'}</span>`;
-  $('start-session').disabled = pending || !connected;
-  $('stop-session').disabled = pending || s.phase==='stopping' || !connected;
-  $('scan').disabled = !active || busy || pending || s.phase==='calibrating' || !connected;
-  $('scan').querySelector('span').textContent = data.demo ? 'Run sample' : 'Scan tray';
-  $('recalibrate').disabled = !active || busy || pending || !s.paused || s.phase==='sorting' || s.phase==='cooldown' || !connected;
-  $('snapshot').disabled = !s.frame_at || !connected;
-  $('prediction-title').textContent = names[s.category] || 'Waiting for an item';
-  $('prediction-sub').textContent = s.category ? `${positions[s.category]} route · ${pct(score)} relative match` : 'One item at a time, centred on the tray.';
-  $('score-bars').innerHTML = Object.keys(names).map(key => `<div class="score-row ${key}"><span><i class="material-dot"></i>${names[key]}</span><span>${pct(s.scores[key])}</span><div class="bar"><span data-width="${(s.scores[key]||0)*100}"></span></div></div>`).join('');
-  $('score-bars').querySelectorAll('[data-width]').forEach(el=>{el.style.width=`${Math.max(0,Math.min(100,Number(el.dataset.width)||0))}%`;});
-  $('unsupported-score').textContent = `Unsupported / background match: ${pct(s.scores.unknown)}`;
-  $('stability').textContent = `${s.stable || 0} / 3 stable`;
-  $('gate-title').textContent = s.paused ? 'Observation only' : s.phase==='sorting' ? 'Executing route' : s.phase==='cooldown' ? 'Between cycles' : 'Decision checks active';
-  $('gate-dot').classList.toggle('active',!s.paused);
-  $('decision-message').textContent = s.message;
-  $('bin-grid').innerHTML = data.categories.map(c => `<article class="bin-card ${c.key}${s.category===c.key?' selected':''}"><div class="bin-top"><span class="material-icon">${icon(icons[c.key])}</span><span class="bin-position">${esc(c.position)}</span></div><h3>${esc(c.name)}</h3><div class="bin-count">${data.counts[c.key]}<small>cycles today</small></div><div class="bin-route"><span>Pan ${c.pan??'—'}° · Tilt ${c.tilt??'—'}°</span>${icon('arrow')}</div></article>`).join('');
-  renderActivity(data);
-  const h=data.health, unavailable='Unavailable';
-  details('health-readings',[
-    ['Device',data.hostname],['Temperature',h.temperature===null?unavailable:`${h.temperature} °C`],
-    ['Memory used',h.memory_percent===null?unavailable:`${h.memory_percent}%`],
-    ['1-minute load average',h.load??unavailable],['Device uptime',duration(h.uptime)],
-    ['Disk used',h.disk_percent===null?unavailable:`${h.disk_percent}%`],
-    ['Firmware power flags',h.throttled?.raw??unavailable],
-    ['Undervoltage now',h.throttled ? (h.throttled.undervoltage_now?'Detected':'Not flagged') : unavailable],
-    ['Undervoltage this boot',h.throttled ? (h.throttled.undervoltage_recorded?'Recorded':'Not flagged') : unavailable]
-  ]);
-  const c=data.calibration;
-  details('calibration',c.error ? [['Calibration error',c.error]] : [
-    ['HOME',`Pan ${c.pan_home}° / Tilt ${c.tilt_home}°`],
-    ...data.categories.map(r=>[`${r.name} · ${r.position}`,`Pan ${r.pan}° / Tilt ${r.tilt}°`]),
-    ['Movement',`1° steps / ${Math.round(c.step_delay*1000)} ms`],['Shake',`${c.shake_degrees}°`],
-    ['Automatic score / margin','60% / 15 percentage points'],['Stability / cooldown','3 predictions / 3.8 seconds']
-  ]);
-  const power=h.throttled;
-  $('power-banner').hidden = !(power && (power.undervoltage_now || power.undervoltage_recorded));
-  $('power-banner').textContent = power?.undervoltage_now ? 'Undervoltage is currently flagged. Pause routing and check the Pi supply and cable before further load tests.' : 'An undervoltage event was recorded during this boot. This is a historical flag; inspect the power supply before extended operation.';
-  $('last-sync').textContent = `Synced ${new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',second:'2-digit'})}`;
-  refreshFrame(data);
-}
-function refreshFrame(data) {
-  const s=data.state, age=s.frame_at ? Date.now()/1000-s.frame_at : Infinity;
-  const fresh=age<8 && !['idle','error'].includes(s.phase);
-  $('camera-badge').textContent = data.demo?'Sample view':fresh?'Live':s.frame_at?'Last frame':'Standby';
-  $('camera-badge').className = `badge${fresh?'':' neutral'}`;
-  $('feed-label').textContent = data.demo?'DESIGN PREVIEW · NO CAMERA':fresh?'CAMERA V2 · LIVE':'CAMERA V2 · STANDBY';
-  $('frame-status').textContent = data.demo?'Illustration · not a live camera':fresh?`${Math.round(s.fps)} capture FPS · preview capped at 2 FPS`:s.frame_at?'Last frame · stream is stale':'No camera session';
-  $('camera-placeholder-title').textContent = data.demo?'A better destination, by design.':s.phase==='loading'?'Preparing the camera & model…':'Your next sort starts here.';
-  $('camera-placeholder-description').textContent = data.demo?'Start a sample session to explore the workflow. No hardware is used.':'Start a camera session to see the live tray.';
-  if (!fresh) {
-    $('camera-frame').hidden=true; $('camera-placeholder').hidden=false;
-  } else if (view==='overview' && !frameLoading && renderedFrameAt!==s.frame_at) {
-    frameLoading=true;
-    const frame=$('camera-frame');
-    frame.onload=()=>{frameLoading=false;renderedFrameAt=s.frame_at;frame.hidden=false;$('camera-placeholder').hidden=true;};
-    frame.onerror=()=>{frameLoading=false;frame.hidden=true;$('camera-placeholder').hidden=false;};
-    frame.src=`/api/frame.jpg?t=${s.frame_at}`;
+  latest=data;
+  const s=data.state, active=!['idle','error'].includes(s.phase), starting=['loading','calibrating'].includes(s.phase);
+  $('connection').textContent='Connected';$('connection').className='connection online';
+  $('mode').hidden=!data.demo&&data.mode==='hardware';
+  $('mode').textContent=data.demo?'Demo · no hardware':'Observation · no motors';
+  $('category').textContent=labels[s.category]||'Waiting for an item';
+  $('prediction').textContent=s.category?`${positions[s.category]} · ${score(s.score)} match score`:'One item at a time, in the centre of the tray.';
+  $('material-icon').innerHTML=s.category&&symbols[s.category]?`<svg viewBox="0 0 24 24">${symbols[s.category]}</svg>`:'—';
+  $('material-icon').style.color=colors[s.category]||'#8aa079';
+  $('status-label').textContent=phases[s.phase]||s.phase;
+  $('message').textContent=s.phase==='calibrating'?(s.auto_sort?'Keep the tray empty for a moment. Sorting starts after calibration.':'Keep the tray empty for a moment. Sorting will remain paused.'):s.phase==='loading'?'The website is ready. The camera and model are starting.':s.phase==='observing'?'The camera and classifier are still running.':s.phase==='sorting'?'Moving the tray towards the selected bin.':s.phase==='cooldown'?'Route completed. Waiting for the tray to clear.':s.phase==='ready'&&!data.demo?(s.message.includes('low confidence')?'Reposition the item for a clearer view.':s.category?'Checking the item…':'Place one item on the tray.'):s.message;
+  $('control').textContent=starting?'Pause after startup':s.phase==='stopping'?'Finishing…':!active?'Start sorting':s.paused?'Resume sorting':'Pause sorting';
+  $('control').disabled=pending||!connected||s.phase==='stopping'||(starting&&s.paused);
+  $('control-note').textContent=starting?'Loading the model and learning the empty tray.':data.demo?'Sample data only. No physical movement.':s.phase==='error'?'Check the assembly before starting again.':active?(s.paused?'The camera and classifier stay on while paused.':'Pause stops the next route; the current cycle finishes first.'):'A physical session commands HOME before sorting.';
+  // Pausing is also allowed during startup to cancel automatic motor routing.
+  if(starting&&!pending&&connected){$('control').textContent=s.auto_sort?'Pause sorting':'Starting · sorting paused';$('control').disabled=!s.auto_sort;}
+  $('reset').hidden=!(active&&s.paused&&!starting&&!['sorting','cooldown','stopping'].includes(s.phase));
+  $('reset').disabled=pending||!connected;
+  $('sample').hidden=!data.demo||!active;$('sample').disabled=pending||!connected;
+  $('bins').innerHTML=Object.entries(labels).map(([key,name])=>`<article class="bin${s.category===key?' selected':''}" data-category="${key}"><h3>${name}</h3><strong>${data.counts[key]}</strong></article>`).join('');
+  document.querySelectorAll('.bin').forEach(el=>el.style.setProperty('--color',colors[el.dataset.category]));
+  const signature=data.events.slice(0,5).map(e=>e.id).join(',');
+  if(signature!==historyKey||!$('events').childNodes.length){
+    historyKey=signature;
+    $('events').innerHTML=data.events.length?data.events.slice(0,5).map(e=>`<div class="event"><strong>${esc(labels[e.category])}</strong><span>${esc(new Date(e.at*1000).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}))} · ${e.mode==='hardware'?'Command completed':'Simulated'}</span></div>`).join(''):'<p>No completed routes yet.</p>';
   }
+  const h=data.health,c=data.calibration;
+  details([['Device',data.hostname],['Temperature',h.temperature===null?'Unavailable':`${h.temperature} °C`],['Memory used',h.memory_percent===null?'Unavailable':`${h.memory_percent}%`],['HOME',c.error||`Pan ${c.pan_home}° / Tilt ${c.tilt_home}°`],['Model',s.model==='siglip2'?'SigLIP 2':'CLIP'],['Inference time',s.inference_ms===null?'—':`${s.inference_ms} ms`],['Power flags',h.throttled?.raw??'Unavailable'],...data.categories.map(r=>[r.name,`Pan ${r.pan??'—'}° / Tilt ${r.tilt??'—'}°`])]);
+  const power=h.throttled;
+  $('notice').hidden=!(data.demo||power?.undervoltage_now||power?.undervoltage_recorded||s.phase==='error');
+  $('notice').textContent=s.phase==='error'?s.message:power?.undervoltage_now?'Low voltage detected. Pause sorting and check the Pi power supply.':power?.undervoltage_recorded?'A low-voltage event was recorded during this boot. Check the Pi supply before extended use.':data.demo?'Design preview. Sample items only; no camera or motors are connected.':'';
+  $('updated').textContent=`Updated ${new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}`;
+  camera(data);
 }
 async function refresh() {
-  try {
-    const data=await api('/api/state'); connected=true; $('offline-banner').hidden=true; render(data);
-  } catch(error) {
-    connected=false; $('connection').textContent='Disconnected';$('connection').className='badge red';
-    $('side-dot').style.background='#ce987b'; $('offline-banner').hidden=!latest;
-    ['start-session','stop-session','pause-resume','scan','recalibrate','snapshot'].forEach(id=>{$(id).disabled=true;});
-    if (latest) {$('frame-status').textContent='Connection lost · camera view is stale';$('camera-badge').textContent='Offline';}
-  }
+  try{const data=await api('/api/state');connected=true;render(data);}
+  catch(error){connected=false;$('connection').textContent='Disconnected';$('connection').className='connection offline';$('notice').hidden=false;$('notice').textContent='Connection lost. Reconnecting automatically…';['control','reset','sample'].forEach(id=>{$(id).disabled=true;});$('camera-status').textContent='Offline';$('frame-note').hidden=$('frame').hidden;$('frame-note').textContent='Disconnected · last frame';}
 }
-async function command(action, mode) {
-  if(pending)return;
-  pending=true;
-  try {await api('/api/command',{action,mode}); await refresh();}
-  finally {pending=false;if(latest&&connected)render(latest);}
+async function command(action){
+  if(pending||!connected)return;
+  pending=true;$('control').disabled=true;
+  try{await api('/api/command',{action});await refresh();}
+  catch(error){toast(error.message);}
+  finally{pending=false;if(latest&&connected)render(latest);}
 }
-function openAction(action) {
-  if(!latest || !connected)return;
-  dialogAction=action;$('action-error').textContent='';$('confirm-check').checked=false;
-  $('mode-options').hidden=action!=='start' || latest.demo;
-  $('hardware-option').hidden=!latest.hardware_allowed;
-  document.querySelector('input[name="session-mode"][value="observe"]').checked=true;
-  const descriptions={
-    start:['Start a camera session','The dashboard will use the existing camera and CLIP pipeline. Close the VNC camera preview and any separate sorter first. Keep the tray empty for the first 30 frames.'],
-    resume:['Enable routing?',latest.mode==='hardware'?'Accepted predictions will move the pan–tilt tray. Stay with the assembly during operation. Pausing waits for any current cycle to finish.':'This session simulates sorting decisions. It will not send motor commands.'],
-    recalibrate:['Reset the empty-tray reference?','Remove all items and hands from the tray. The next 30 camera frames will establish a new background reference. Servo calibration is unchanged.'],
-    stop:['End this session?','The current route, if any, finishes first. The hardware controller returns to HOME during shutdown and releases the camera. This is not an emergency power cutoff.']
-  };
-  const description=descriptions[action];
-  $('dialog-title').textContent=latest.demo && action==='start'?'Explore a sample session':description[0];
-  $('dialog-description').textContent=latest.demo && action==='start'?'No camera, model or motor hardware is used. Run sample generates labelled demonstration data.':description[1];
-  updateActionOptions();$('action-dialog').showModal();
-}
-function updateActionOptions() {
-  const hardwareStart=dialogAction==='start' && document.querySelector('input[name="session-mode"]:checked').value==='hardware' && latest.hardware_allowed;
-  const needsCheck=hardwareStart || (dialogAction==='resume' && latest.mode==='hardware');
-  $('confirm-label').hidden=!needsCheck;
-  $('confirm-check').required=needsCheck;
-  $('confirm-action').textContent = dialogAction==='start' ? latest.demo?'Start demo':hardwareStart?'Start physical session':'Start observation' : {resume:'Enable routing',recalibrate:'Reset reference',stop:'End session'}[dialogAction];
-}
-document.querySelectorAll('input[name="session-mode"]').forEach(el=>el.addEventListener('change',updateActionOptions));
-$('start-session').addEventListener('click',()=>openAction('start'));
-$('stop-session').addEventListener('click',()=>openAction('stop'));
-$('pause-resume').addEventListener('click',async()=>{if(latest.state.paused)openAction('resume');else try{await command('pause');toast('Pause requested. Any active route finishes first.');}catch(e){toast(e.message);}});
-$('scan').addEventListener('click',async()=>{try{await command('scan');toast(latest.demo?'Sample evaluated.':'Scan requested. Decision checks remain active.');}catch(e){toast(e.message);}});
-$('recalibrate').addEventListener('click',()=>openAction('recalibrate'));
-$('cancel-dialog').addEventListener('click',()=>$('action-dialog').close());
-$('action-form').addEventListener('submit',async event=>{
-  event.preventDefault(); if(pending)return;
-  $('confirm-action').disabled=true;
-  try {await command(dialogAction,dialogAction==='start'?document.querySelector('input[name="session-mode"]:checked').value:null);$('action-dialog').close();toast('Request sent. Watch session status for completion.');}
-  catch(error){$('action-error').textContent=error.message;}
-  finally{$('confirm-action').disabled=false;}
+$('control').addEventListener('click',()=>{
+  if(!latest)return;
+  const phase=latest.state.phase;
+  if(['idle','error'].includes(phase)){
+    if(latest.hardware_allowed&&!confirm('Starting commands HOME and enables sorting after the empty-tray calibration. Is the tray empty and the mechanism clear?'))return;
+    command('start');
+  }else command(['loading','calibrating'].includes(phase)?'pause':latest.state.paused?'resume':'pause');
 });
-$('login-dialog').addEventListener('cancel',event=>event.preventDefault());
-$('login-form').addEventListener('submit',async event=>{
-  event.preventDefault();const button=event.target.querySelector('button');button.disabled=true;
-  try {await api('/api/login',{code:$('access-code').value});$('access-code').value='';$('login-error').textContent='';$('login-dialog').close();await refresh();}
-  catch(error){$('login-error').textContent=error.message;}
-  finally{button.disabled=false;}
-});
-$('overlay-toggle').addEventListener('click',()=>{guides=!guides;$('scan-box').hidden=!guides;$('overlay-toggle').textContent=guides?'Hide guides':'Show guides';$('overlay-toggle').setAttribute('aria-pressed',String(guides));});
-$('fullscreen').addEventListener('click',async()=>{try{if(document.fullscreenElement)await document.exitFullscreen();else await $('camera-stage').requestFullscreen();}catch(_){toast('Full-screen view is unavailable in this browser.');}});
-$('export').addEventListener('click',()=>{if(connected)window.location.assign('/api/history.csv');else toast('Connect to the dashboard before exporting.');});
-$('snapshot').addEventListener('click',async()=>{try{const response=await fetch('/api/frame.jpg');if(!response.ok)throw new Error('Camera frame unavailable.');const url=URL.createObjectURL(await response.blob());const a=document.createElement('a');a.href=url;a.download=`ecosort-tray-${Date.now()}.jpg`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}catch(error){toast(error.message);}});
-function tick(){const now=new Date();$('clock').textContent=now.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});$('today').textContent=now.toLocaleDateString([],{day:'numeric',month:'short',year:'numeric'});}
-tick();setInterval(tick,10000);
+$('reset').addEventListener('click',()=>{if(confirm('Remove all items and hands from the tray, then reset its empty reference?'))command('recalibrate');});
+$('sample').addEventListener('click',()=>command('scan'));
 async function poll(){await refresh();setTimeout(poll,1500);}
 poll();

@@ -802,6 +802,8 @@ def main(bridge=None):
                     cv2.accumulateWeighted(gray_roi, background_frame, 0.1)
 
                 frames_read += 1
+                if bridge and frames_read == calibration_frames:
+                    bridge.calibrated()
                 calib_msg = f"Calibrating Empty Tray... {frames_read}/{calibration_frames}"
 
                 if not is_headless:
@@ -950,6 +952,8 @@ def main(bridge=None):
                     cv2.accumulateWeighted(gray_roi, background_frame, 0.05)
                     empty_frames += 1
                     if empty_frames > 12:
+                        if bridge and empty_frames == 13:
+                            bridge.emit('state', category=None, score=None, inference_ms=None, stable=0)
                         locked_text = None
                         decision_text = None
                         prediction_history = []

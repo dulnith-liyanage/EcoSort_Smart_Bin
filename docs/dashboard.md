@@ -1,143 +1,149 @@
-# EcoSort web dashboard
+# Simple dashboard and headless startup
 
-A local web interface for the existing camera, classifier and four-bin pan–tilt
-assembly. There is no cloud service, frontend build, CDN or extra Python package.
-The web server uses Python's standard library; a real camera session uses the
-project's existing runtime dependencies. The dashboard itself never opens
-hardware at startup.
+The main screen contains the camera, current item, four bin counters and a
+pause/resume button. Recent activity and read-only device details are collapsed
+by default. Desktop places the camera and result side by side; mobile puts the current
+classification and pause button first, followed by the camera.
+No framework build, cloud account, VNC, terminal code or browser login is needed.
 
-## Try the design on your Mac
+## Daily use after the one-time Pi installation
 
-From the repository directory:
+1. Keep the tray empty and the mechanism clear. Connect the existing separate
+   servo supply and power the Pi.
+2. The systemd service starts the website immediately, then loads the cached
+   CLIP model and opens the single shared camera process. Classification does
+   not depend on someone opening the website or on Wi-Fi becoming available.
+3. Hardware initialization commands the saved HOME. The first 30 camera frames
+   learn the empty tray. Only then is automatic routing enabled. Model loading
+   still takes time: there is no promise of instant inference at power-on.
+4. Join the same Wi-Fi and open **http://ecosort.local:8080**, assuming the Pi's
+   hostname remains `ecosort`. Bookmark it or add it to your phone's home screen.
+   If the hostname differs, use `http://<hostname>.local:8080`. Where mDNS does
+   not work, use the Pi's IP address from your router's device list. A router
+   DHCP reservation can keep that address stable.
+5. Place one supported item on the tray. Recognition, score/margin/stability
+   checks and the existing calibrated routes run automatically. Closing the
+   browser does not stop sorting. No manual SSH command is needed each boot.
 
-```sh
-./venv/bin/python -m dashboard --demo
-```
+The existing HOME remains pan 90° / tilt 125°, with tilt endpoints 90° / 160°.
+No servo calibration or classification threshold was changed for this work.
+**Pause sorting** blocks the next cycle, leaving classification and the camera
+running. An in-flight route finishes first. It is not an emergency power cutoff.
+After pausing, **Reset empty tray** relearns only the camera background; remove
+items and hands first. It does not change mechanical calibration.
 
-Open **http://127.0.0.1:8080**. Enter the access code printed in the terminal.
-Choose **Start session → Start demo → Enable routing**, then **Run sample**.
-Sample events are marked DEMO and never mixed with physical command counts.
-The tray illustration is a placeholder, not an actual camera image. Device
-health readings come from the host running the server; unavailable Pi metrics
-show a dash. No pretrained model is loaded in demo mode.
+## One-time installation (to do when the Pi is powered)
 
-## Run on the Raspberry Pi
+Nothing in this section has been run on the Pi during this offline preparation.
+The installer defaults to a text preview. It refuses to install on a Mac.
 
-1. Open SSH and change to your checkout:
+First copy/update the dashboard branch on the Pi, close competing sorter and
+camera applications, verify the established motor routes and inspect the power
+supply issue before enabling physical startup. Confirm Wi-Fi is saved in Pi OS.
 
-   ```sh
-   cd ~/EcoSort_Smart_Bin
-   ```
-
-2. Stop any separate sorter or camera-preview application. One process must own
-   the camera. The existing I2C lock also protects against competing EcoSort
-   motor controllers.
-
-3. Start the web server for access on your trusted Wi-Fi:
-
-   ```sh
-   ./venv/bin/python -m dashboard --host 0.0.0.0
-   ```
-
-4. On your Mac or phone, open **http://ecosort.local:8080**, or use
-   `http://<current-Pi-IP>:8080`. Run `hostname -I` on the Pi if you need the
-   current address. `0.0.0.0` is a bind address, not the address to enter on your
-   phone. Enter the access code from the Pi terminal; this is separate from your
-   SSH password. All viewers with this code can access the camera and controls.
-
-5. Choose **Start session → Observe & simulate**. Keep the tray empty while the
-   first 30 frames establish its background. The camera and CLIP run on the Pi;
-   the browser receives a compressed 640 × 480 preview capped at two images per
-   second. It does not run the ML model on your phone. The first model load can
-   take time and may download weights if they are not already cached.
-
-6. Place an item on the tray. Observe the four relative match scores, selected
-   route and decision message. **Enable routing** in an observation session
-   only records simulated routes. It never enables physical motors.
-
-### Physical sorting, when the assembly is ready
-
-End the observation session, stop the server with Ctrl+C, and restart with the
-explicit physical-control opt-in:
+Run as the normal Pi user, from the repository:
 
 ```sh
-./venv/bin/python -m dashboard --host 0.0.0.0 --allow-hardware-controls
+# Read the proposed service without installing it:
+./venv/bin/python scripts/install_dashboard_service.py
+
+# Install for the NEXT boot (does not start the camera/motors now):
+./venv/bin/python scripts/install_dashboard_service.py --install
 ```
 
-Choose **Start session → Physical hardware** and confirm the readiness check.
-**Starting a physical session commands the saved HOME**, even though automatic
-routing initially remains paused. Check the tray is unloaded and clear before
-starting. Keep the tray empty during background calibration. Use **Enable
-routing** to allow accepted predictions to command the four existing routes.
-A hardware initialization failure is reported as an error, not silently
-converted to simulation. The dashboard does not modify saved servo angles.
+The installer checks the local model cache in offline mode and validates the
+saved servo routes before making system changes. If the model is missing,
+cache it using the existing setup workflow with an Internet connection first.
+It installs Avahi for local hostname discovery, writes the service, and enables
+it for the next boot. It never enables the sorter with `--now`.
 
-**Pause routing** prevents the next route; a cycle already in progress finishes
-first. **End session** similarly waits for a cycle boundary, returns hardware
-to HOME through the existing controller shutdown, and releases the camera.
-Neither button is an emergency electrical cutoff. Continue supervised testing
-and address the previously observed power-supply issue before extended use.
+After clearing the tray/assembly, the first supervised reboot will test startup,
+local hostname access, camera capture, model inference, I2C and delivery. Future
+power-ons will not need SSH, VNC or a manually started command. That first Pi
+verification remains pending; offline tests cannot establish physical success.
 
-**Reset empty tray** is available after pausing and completing the current
-cycle. It resets camera background detection, not mechanical calibration.
-**Scan tray** retains the confidence, margin and stable-prediction checks; it
-cannot force an uncertain item to move.
+Files installed on the Pi:
 
-## Features and honest measurements
+- `/etc/systemd/system/ecosort-dashboard.service`
+- `/etc/avahi/services/ecosort.service`
 
-- Camera preview, scanning guide toggle, full-screen view and snapshot download.
-- Four material scores, best supported category, stability and decision reason.
-- Saved HOME and route commands: pan 90° / tilt 125° HOME, with the existing
-  90° and 160° tilt endpoints. All values are loaded from the shared calibration.
-- Today's completed command counts for the selected session mode. These are
-  neither measured bin fill nor verified correct deliveries.
-- Persistent history with category/mode filters and CSV export. A new record is
-  created only after the controller's route method returns successfully.
-- Pi temperature, memory, disk use, uptime, load and available firmware power
-  flags. Historical undervoltage flags are distinguished from current flags.
-- Disconnection/stale-camera states and observation-first sessions.
+The service runs as the normal user with I2C/video access and the existing venv
+and model cache. It uses one inference thread, caps previews at two JPEGs per
+second, and stores temporary frames in RAM under `/dev/shm`. It does not depend
+on a desktop session or `network-online.target`. History persists under
+`~/.local/share/ecosort-dashboard/history.sqlite3`.
 
-History is stored in `~/.local/share/ecosort-dashboard/history.sqlite3` unless
-`--data-dir` is supplied. Dates follow the server's local timezone; configure
-Pi OS for Asia/Colombo if needed. The activity screen shows the latest 250
-records and CSV exports the latest 10,000. Frames are temporary: on Pi OS they
-are written to `/dev/shm` (RAM), not continuously saved to the SD card. No video
-recording is enabled. An inference or motor cycle can delay the next frame;
-the interface marks a stream stale after eight seconds.
+## Startup and failure handling
 
-## Access and startup options
+The website stays available while the camera/model loads. At most three initial
+startup attempts are made, 15 seconds apart. Once camera operation is reached,
+a later error stops sorting and is shown in the browser; there is no blind
+motor restart after an operational error. **Start sorting** can retry after the
+operator checks the assembly. A pause during startup cancels automatic routing.
 
-By default the server binds only to loopback. `--host 0.0.0.0` allows trusted
-LAN clients. Requests require a session cookie obtained with the terminal
-access code, and control requests must be same-origin. Do not port-forward
-this HTTP server to the Internet. HTTP does not encrypt the access code or
-camera stream. For encrypted access, retain the loopback default and use SSH
-from your Mac:
+Systemd restarts the web supervisor on failure with a delay and a rate limit.
+Normal shutdown requests a worker stop and allows an active route to finish.
+A software crash, forced shutdown or power loss cannot guarantee a level tray:
+the prototype has no angle or delivery feedback sensors.
+
+For maintenance only (not daily operation):
 
 ```sh
-ssh -L 8080:127.0.0.1:8080 en12@ecosort.local
+sudo systemctl status ecosort-dashboard.service
+journalctl -u ecosort-dashboard.service -n 80 --no-pager
+# Stop it now and disable automatic startup:
+sudo systemctl disable --now ecosort-dashboard.service
 ```
 
-Then open **http://127.0.0.1:8080** on the Mac. This does not require VNC.
-For a stable code across server restarts, set `ECOSORT_DASHBOARD_CODE` to an
-at-least-eight-character secret in your shell environment. Do not commit it to
-Git. Without that variable, each restart prints a new random code and
-invalidates previous browser sessions.
+Stopping the service normally returns the motor controller to HOME. Clear the
+assembly before issuing maintenance commands.
 
-Start the server manually during initial tests. Automatic boot startup is
-intentionally not installed; no camera or motor session should begin
-unexpectedly. A future service can start the web server, while the operator
-still starts each observation/physical session through the dashboard.
+## Local access without a code
 
-## Verification
+Anyone on the trusted LAN can view the camera and use the basic controls.
+This is the deliberate replacement for the previous terminal-code login.
+HTTP is unencrypted. Keep the service on a trusted home/project network and do
+not expose/port-forward it to the Internet. Unexpected hostnames, public source
+addresses and cross-origin control requests are rejected. These checks are not
+a substitute for network isolation and cannot protect against a router proxy
+that disguises public traffic as local traffic.
+
+Pi OS advertises the hostname through Avahi/mDNS; the installer also advertises
+an HTTP service. Actual name resolution depends on the client and Wi-Fi network.
+An IP address, bookmark or later printed URL/QR label provides a fallback.
+
+## Preview on the Mac
+
+```sh
+./venv/bin/python -m dashboard --demo --autostart
+```
+
+Open **http://127.0.0.1:8080**. It opens directly without a code. **Try a sample
+item** changes the category and updates labelled simulated history. Demo mode
+never loads a model, opens the camera or initializes motors.
+
+For an explicit live observation session on the Pi without physical motor output:
+
+```sh
+./venv/bin/python -m dashboard --host 0.0.0.0 --autostart
+```
+
+Physical boot operation additionally uses `--allow-hardware-controls` in the
+installed service. Do not run a second server/classifier alongside that service.
+
+## Verification and measurements
 
 ```sh
 ./venv/bin/python scripts/verify.py
 node --check dashboard/web/app.js
 ```
 
-Offline tests cover authenticated API access, cross-origin rejection, persistent
-mode-separated history, error states, hardware opt-in and the actual runtime's
-pause gate. Demo browser checks do not verify Pi camera capture, physical
-motion, power stability or sorting accuracy. Validate those on the assembled
-Pi before relying on physical sessions.
+Counts are completed route commands, not bin fullness or verified deliveries.
+Match scores are not measured accuracy. CSV export retains modes/outcomes and
+up to the latest 10,000 records; the collapsed history shows the latest five.
+Missing Pi metrics are unavailable, never invented. Stale or disconnected
+camera views are labelled. Source behavior and offline tests are verified
+locally; service installation, reboot behavior and hardware checks await the Pi.
+
+References: [Pi remote access and mDNS](https://www.raspberrypi.com/documentation/computers/remote-access.html),
+[systemd service configuration](https://www.freedesktop.org/software/systemd/man/systemd.service.html).

@@ -1,15 +1,15 @@
-"""Dependency-free LAN dashboard; no motors or camera are opened at startup."""
+"""Simple LAN dashboard with optional unattended boot startup."""
 import argparse
+import ipaddress
+import signal
 import csv
 from dataclasses import asdict
 from datetime import datetime
-from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import io
 import json
 import os
 from pathlib import Path
-import secrets
 import shutil
 import socket
 import sqlite3
@@ -115,6 +115,11 @@ class Dashboard:
         self.health_at = 0.0
         self.started = time.time()
         self.demo_index = 0
+        self.closing = threading.Event()
+        self.reader_thread = None
+        self.boot_thread = None
+        self.reached_camera = False
+        self.boot_cancelled = threading.Event()
 
     def snapshot(self):
         with self.lock:
@@ -151,6 +156,8 @@ class Dashboard:
                         continue
                     if kind == 'state' and not error_seen:
                         self.state.update(message)
+                        if message.get('phase') in {'calibrating', 'observing', 'ready', 'sorting', 'cooldown'}:
+                            self.reached_camera = True
                     elif kind == 'frame':
                         self.state['frame_at'] = message['at']
                     elif kind == 'sort':
@@ -168,10 +175,44 @@ class Dashboard:
                     self.state.update(phase='idle' if code == 0 else 'error',
                                       message='Session stopped. Camera released.' if code == 0 else 'Session exited. Check the Pi terminal for details.')
 
-    def command(self, action, mode=None):
+    def begin_autostart(self):
+        """Keep the website available while boot startup makes bounded attempts."""
+        if self.boot_thread and self.boot_thread.is_alive():
+            return
+        self.boot_cancelled.clear()
+        self.boot_thread = threading.Thread(target=self._boot_loop, daemon=True)
+        self.boot_thread.start()
+
+    def _boot_loop(self):
+        for attempt in range(3):
+            if self.closing.is_set() or self.boot_cancelled.is_set():
+                return
+            try:
+                self.command('start', 'hardware' if self.allow_hardware else 'observe', auto_sort=True)
+                if self.demo:
+                    return
+                self.reader_thread.join()
+                # Never blindly restart a controller that reached operation.
+                if self.reached_camera or self.closing.is_set() or self.boot_cancelled.is_set():
+                    return
+            except (ValueError, OSError) as error:
+                with self.lock:
+                    self.state.update(phase='error', message=str(error))
+            if attempt < 2:
+                with self.lock:
+                    self.state['message'] = 'Startup not ready. Retrying in 15 seconds.'
+                if self.closing.wait(15):
+                    return
+
+    def command(self, action, mode=None, auto_sort=False):
         with self.lock:
+            if self.closing.is_set():
+                raise ValueError('The device is shutting down.')
             if self.demo:
-                return self._demo_command(action)
+                result = self._demo_command(action)
+                if action == 'start' and auto_sort:
+                    self._demo_command('resume')
+                return result
             active = self.process is not None and self.process.poll() is None
             if action == 'start':
                 if active:
@@ -181,29 +222,35 @@ class Dashboard:
                 if mode == 'hardware' and not self.allow_hardware:
                     raise ValueError('Physical control is disabled on this server.')
                 self.session_mode = mode
+                self.reached_camera = False
                 self.frame_path.unlink(missing_ok=True)
-                self.state.update(phase='loading', paused=True, scores={}, category=None,
+                self.state.update(phase='loading', paused=True, auto_sort=auto_sort, scores={}, category=None,
                                   score=None, frame_at=None, inference_ms=None, stable=0,
                                   message='Loading cached CLIP model; keep the tray empty.')
                 args = [sys.executable, '-u', '-m', 'dashboard.worker', '--frame-path', str(self.frame_path),
                         '--headless', '--driver', 'rpi-i2c' if mode == 'hardware' else 'sim', '--cpu-threads', '1']
+                if auto_sort:
+                    args.append('--auto-sort')
                 try:
                     self.process = subprocess.Popen(args, cwd=ROOT, stdin=subprocess.PIPE,
                                                     stdout=subprocess.PIPE, text=True, bufsize=1)
                 except OSError:
                     self.state.update(phase='error', paused=True, message='Could not start the camera worker. Check the Pi terminal.')
                     raise
-                threading.Thread(target=self._reader, args=(self.process, mode), daemon=True).start()
+                self.reader_thread = threading.Thread(target=self._reader, args=(self.process, mode), daemon=True)
+                self.reader_thread.start()
             elif action in {'pause', 'resume', 'scan', 'recalibrate', 'stop'}:
                 if not active:
                     raise ValueError('Start a session first.')
-                if self.state['phase'] in {'loading', 'stopping'} and action != 'stop':
+                if self.state['phase'] in {'loading', 'stopping', 'calibrating'} and action not in {'stop', 'pause'}:
                     raise ValueError('Wait for the current transition to finish.')
                 if action == 'recalibrate' and (not self.state['paused'] or self.state['phase'] in {'sorting', 'cooldown'}):
                     raise ValueError('Pause routing and wait for the current cycle to finish before resetting the tray reference.')
                 if action == 'stop':
+                    self.reached_camera = True  # an operator stop cancels boot retries
                     self.state.update(phase='stopping', message='Stopping at the next cycle boundary; a running cycle finishes first.')
                 elif action == 'pause':
+                    self.state['auto_sort'] = False
                     self.state['message'] = 'Pause requested; a running cycle finishes first.'
                 self.process.stdin.write(json.dumps({'action': action}) + '\n')
                 self.process.stdin.flush()
@@ -215,7 +262,7 @@ class Dashboard:
         if action == 'start':
             self.state.update(phase='observing', paused=True, message='Sample session ready. No camera or motors are connected.')
         elif action == 'resume':
-            self.state.update(paused=False, phase='ready', message='Demo routes enabled. Use Run sample to add a simulated event.')
+            self.state.update(paused=False, phase='ready', message='Try a sample item below.')
         elif action == 'pause':
             self.state.update(paused=True, phase='observing', message='Demo routing paused.')
         elif action == 'stop':
@@ -229,7 +276,7 @@ class Dashboard:
             scores = {c['key']: (0.82 if c['key'] == key else 0.04) for c in CATEGORIES}
             scores['unknown'] = 0.06
             self.state.update(category=key, score=.82, scores=scores, inference_ms=246,
-                              stable=3, message='Sample classification. Relative match score, not measured accuracy.')
+                              stable=3, message='Sample item matched. No motors were moved.')
             if not self.state['paused']:
                 self.store.add(key, .82, 'demo', 'simulated')
         else:
@@ -237,6 +284,7 @@ class Dashboard:
         return {'ok': True}
 
     def close(self):
+        self.closing.set()
         with self.lock:
             process = self.process
             if process is not None and process.poll() is None:
@@ -247,7 +295,7 @@ class Dashboard:
                     pass
         if process is not None:
             try:
-                process.wait(timeout=45)
+                process.wait(timeout=90)
             except subprocess.TimeoutExpired:
                 # Never kill an in-flight motor cycle. Closing stdin also requests a stop.
                 process.stdin.close()
@@ -260,11 +308,10 @@ class DashboardServer(ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = True
 
-    def __init__(self, address, app, access_code):
+    def __init__(self, address, app):
         self.app = app
-        self.access_code = access_code
-        self.session_token = secrets.token_urlsafe(32)
-        self.login_failures = {}
+        hostname = socket.gethostname().lower().split('.')[0]
+        self.allowed_names = {'localhost', hostname, hostname + '.local'}
         super().__init__(address, Handler)
 
 
@@ -272,7 +319,7 @@ class Handler(BaseHTTPRequestHandler):
     server_version = 'EcoSort/1.0'
 
     def log_message(self, *_):
-        pass  # Do not log access codes, session cookies or camera URLs.
+        pass  # Keep the service journal focused on device events.
 
     def _send(self, data, content_type='application/json', status=200, extra=None):
         if isinstance(data, (dict, list)):
@@ -294,15 +341,25 @@ class Handler(BaseHTTPRequestHandler):
         except (BrokenPipeError, ConnectionResetError):
             pass
 
-    def _authenticated(self):
+    def _local_request(self):
+        """Reject public clients and unexpected DNS names on a password-free LAN UI."""
         try:
-            cookie = SimpleCookie(self.headers.get('Cookie', ''))
-            value = cookie.get('ecosort_session')
-            return value is not None and secrets.compare_digest(value.value, self.server.session_token)
-        except Exception:
+            peer = ipaddress.ip_address(self.client_address[0].split('%')[0])
+            if not (peer.is_private or peer.is_loopback or peer.is_link_local):
+                return False
+            host = urlsplit('http://' + self.headers.get('Host', '')).hostname
+            if not host:
+                return False
+            if host.lower() in self.server.allowed_names:
+                return True
+            address = ipaddress.ip_address(host.split('%')[0])
+            return address.is_private or address.is_loopback or address.is_link_local
+        except ValueError:
             return False
 
     def do_GET(self):
+        if not self._local_request():
+            return self._send({'error': 'Use the local device address on your trusted Wi-Fi.'}, status=403)
         path = urlsplit(self.path).path
         files = {'/': ('index.html', 'text/html; charset=utf-8'),
                  '/app.js': ('app.js', 'text/javascript; charset=utf-8'),
@@ -310,8 +367,6 @@ class Handler(BaseHTTPRequestHandler):
         if path in files:
             name, mime = files[path]
             return self._send((WEB / name).read_bytes(), mime)
-        if not self._authenticated():
-            return self._send({'error': 'Sign in with the access code from the Pi terminal.'}, status=401)
         if path == '/api/state':
             return self._send(self.server.app.snapshot())
         if path == '/api/frame.jpg':
@@ -329,6 +384,8 @@ class Handler(BaseHTTPRequestHandler):
         return self._send({'error': 'Not found'}, status=404)
 
     def do_POST(self):
+        if not self._local_request():
+            return self._send({'error': 'Local access required.'}, status=403)
         # A custom header blocks cross-site form posts even on browsers without Origin.
         origin = self.headers.get('Origin')
         expected = 'http://' + self.headers.get('Host', '')
@@ -344,24 +401,13 @@ class Handler(BaseHTTPRequestHandler):
         except (ValueError, json.JSONDecodeError):
             return self._send({'error': 'Invalid JSON request.'}, status=400)
         path = urlsplit(self.path).path
-        if path == '/api/login':
-            ip = self.client_address[0]
-            attempts, since = self.server.login_failures.get(ip, (0, time.monotonic()))
-            if time.monotonic() - since > 60:
-                attempts, since = 0, time.monotonic()
-            if attempts >= 10:
-                return self._send({'error': 'Too many attempts. Wait one minute.'}, status=429)
-            code = body.get('code', '')
-            if not isinstance(code, str) or not secrets.compare_digest(code.encode(), self.server.access_code.encode()):
-                self.server.login_failures[ip] = (attempts + 1, since)
-                return self._send({'error': 'Access code does not match.'}, status=401)
-            self.server.login_failures.pop(ip, None)
-            return self._send({'ok': True}, extra={'Set-Cookie': 'ecosort_session=' + self.server.session_token + '; HttpOnly; SameSite=Strict; Path=/'})
-        if not self._authenticated():
-            return self._send({'error': 'Sign in first.'}, status=401)
         if path == '/api/command':
             try:
-                return self._send(self.server.app.command(body.get('action'), body.get('mode')))
+                action = body.get('action')
+                if action in {'start', 'stop', 'pause'}:
+                    self.server.app.boot_cancelled.set()
+                mode = 'hardware' if self.server.app.allow_hardware else 'observe'
+                return self._send(self.server.app.command(action, mode, auto_sort=(action == 'start')))
             except (ValueError, OSError) as error:
                 return self._send({'error': str(error)}, status=409)
         return self._send({'error': 'Not found'}, status=404)
@@ -373,16 +419,20 @@ def main():
     parser.add_argument('--port', type=int, default=8080)
     parser.add_argument('--demo', action='store_true', help='Interactive sample data, no model, camera or motors.')
     parser.add_argument('--allow-hardware-controls', action='store_true', help='Permit explicitly requested physical sessions; starting one commands HOME.')
+    parser.add_argument('--autostart', action='store_true', help='Start the camera/model and enable routing after tray calibration.')
     parser.add_argument('--data-dir', default=str(Path.home() / '.local/share/ecosort-dashboard'))
     args = parser.parse_args()
-    access_code = os.environ.get('ECOSORT_DASHBOARD_CODE') or secrets.token_urlsafe(9)
-    if len(access_code) < 8:
-        parser.error('ECOSORT_DASHBOARD_CODE must have at least eight characters.')
     app = Dashboard(args.data_dir, args.demo, args.allow_hardware_controls)
-    server = DashboardServer((args.host, args.port), app, access_code)
+    server = DashboardServer((args.host, args.port), app)
     print(f'EcoSort dashboard: http://{args.host}:{server.server_port}', flush=True)
-    print(f'Access code: {access_code}', flush=True)
-    print('Dashboard started; no camera or motor session started. Use a trusted LAN or SSH tunnel.', flush=True)
+    print('No access code. Local trusted-network access only.', flush=True)
+    if args.autostart:
+        app.begin_autostart()
+    # SIGINT reaches only the supervisor with systemd KillMode=mixed. The worker
+    # receives a graceful stop over stdin and finishes an in-flight route.
+    def shutdown_signal(*_):
+        raise KeyboardInterrupt
+    signal.signal(signal.SIGTERM, shutdown_signal)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
