@@ -161,7 +161,7 @@ class DashboardTests(unittest.TestCase):
     def test_boot_service_quotes_paths_and_uses_existing_offline_cache(self):
         from scripts.install_dashboard_service import unit_text
         unit=unit_text('/home/en12/EcoSort project','/home/en12/EcoSort project/venv/bin/python','en12','/home/en12',['i2c','video'])
-        self.assertIn('WorkingDirectory="/home/en12/EcoSort project"',unit)
+        self.assertIn('WorkingDirectory=/home/en12/EcoSort project\n',unit)
         self.assertIn('--autostart --allow-hardware-controls',unit)
         self.assertIn('Environment=HF_HUB_OFFLINE=1',unit)
         self.assertIn('KillMode=mixed',unit)

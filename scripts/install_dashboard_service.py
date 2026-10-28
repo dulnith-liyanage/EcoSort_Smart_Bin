@@ -32,7 +32,7 @@ StartLimitBurst=3
 Type=simple
 User={username}
 SupplementaryGroups={' '.join(groups)}
-WorkingDirectory="{root}"
+WorkingDirectory={root}
 Environment="HOME={home}"
 Environment=PYTHONUNBUFFERED=1
 Environment=HF_HUB_OFFLINE=1
