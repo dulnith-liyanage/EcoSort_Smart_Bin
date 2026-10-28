@@ -19,6 +19,7 @@ class DashboardBridge:
         self.auto_sort = auto_sort
         self.stopping = False
         self.last_frame = 0.0
+        self.warmup_frames = 60  # Let auto-exposure settle before learning the empty tray.
         threading.Thread(target=self._read_commands,
                          args=(input_stream or sys.stdin,), daemon=True).start()
 

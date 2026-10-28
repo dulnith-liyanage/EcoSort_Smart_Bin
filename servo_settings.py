@@ -38,8 +38,11 @@ class Calibration:
     backward_tilt: int | None = None
     shake_degrees: int = 10
     step_delay: float = 0.009
+    release_pan_at_home: bool = False
 
     def __post_init__(self):
+        if type(self.release_pan_at_home) is not bool:
+            raise ValueError('release_pan_at_home must be true or false.')
         for value in (self.pan_home, self.tilt_home):
             if type(value) is not int or not 0 <= value <= 180:
                 raise ValueError('HOME angles must be integers between 0 and 180.')
@@ -92,7 +95,8 @@ def load_calibration(path=None):
     data = json.loads(Path(path or CONFIG).read_text())
     return Calibration(data['pan_home'], data['tilt_home'],
                        data.get('forward_tilt'), data.get('backward_tilt'),
-                       data.get('shake_degrees', 10), data.get('step_delay', 0.009))
+                       data.get('shake_degrees', 10), data.get('step_delay', 0.009),
+                       data.get('release_pan_at_home', False))
 
 
 class BufferCompatibleI2C:

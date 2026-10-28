@@ -133,6 +133,54 @@ class RuntimeTests(unittest.TestCase):
                     self.assertEqual(self.events[last_tilt], (1, 125))
                     self.assertGreater(len(self.events) - 1, last_tilt)
 
+    def test_quiet_idle_releases_only_pan_after_home_and_every_route(self):
+        saved = servo_settings.Calibration(90,125,90,160,0,0.04,True)
+        with patch.object(servo_settings,'load_calibration',return_value=saved):
+            controllers=[live.DirectPca9685Controller(), calibration.ServoPanTilt()]
+        for controller in controllers:
+            if isinstance(controller,calibration.ServoPanTilt):
+                controller.go_home()
+            self.assertEqual(self.events[-1],(0,None))
+            for index,(key,cfg) in enumerate(live.CATEGORY_CONFIG.items(),1):
+                self.events.clear()
+                if isinstance(controller,live.DirectPca9685Controller):
+                    controller.trigger_sort(key,cfg)
+                else:
+                    controller.dump_bin(str(index))
+                pan=[angle for ch,angle in self.events if ch==0]
+                tilt=[angle for ch,angle in self.events if ch==1]
+                self.assertEqual(pan[0],90)  # re-engage before route movement
+                self.assertIn(cfg['pan'],pan)
+                self.assertEqual(pan[-2:],[90,None])
+                self.assertEqual(pan.count(None),1)
+                self.assertNotIn(None,tilt)  # retain support for the tray
+                self.assertEqual(tilt[-1],125)
+                self.assertEqual((controller.current_pan,controller.current_tilt),(90,125))
+
+    def test_manual_tilt_reengages_pan_before_leaving_level(self):
+        saved=servo_settings.Calibration(90,125,90,160,0,0.04,True)
+        with patch.object(servo_settings,'load_calibration',return_value=saved):
+            controller=calibration.ServoPanTilt()
+        controller.go_home()
+        self.events.clear()
+        controller.set_tilt(124)
+        self.assertEqual(self.events[0],(0,90))
+        self.assertFalse(controller._pan_released)
+        self.assertNotIn((0,None),self.events)
+
+    def test_quiet_release_refuses_non_home_position(self):
+        saved=servo_settings.Calibration(90,125,90,160,0,0.04,True)
+        with patch.object(servo_settings,'load_calibration',return_value=saved):
+            controller=live.DirectPca9685Controller()
+        self.events.clear()
+        controller.current_tilt=90
+        controller.release_idle_pan()
+        self.assertEqual(self.events,[])
+        controller.current_tilt=125
+        controller.current_pan=135
+        controller.release_idle_pan()
+        self.assertEqual(self.events,[])
+
     def test_startup_emits_home(self):
         live.DirectPca9685Controller()
         self.assertEqual(self.events[-2:], [(1,90),(0,90)])

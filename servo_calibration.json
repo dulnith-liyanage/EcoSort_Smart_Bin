@@ -5,5 +5,6 @@
   "backward_tilt": 160,
   "shake_degrees": 0,
   "step_delay": 0.04,
-  "note": "Operator reports horizontal at tilt command 125. Pan HOME remains 90. Provisional forward 90 and backward 160 give equal 35-degree command offsets from level. Shake disabled, one-degree steps at 40 ms. Pi disconnected during this update: endpoints, bin directions, clearance and item delivery require physical verification with small unloaded movements first."
+  "note": "HOME pan 90 / tilt 125, forward 90 / backward 160; shake off. On 28 October, operator confirmed vibration stops with pan PWM released and tilt still holding level. Release only pan at HOME; re-enable before movement. Physical item delivery is not measured.",
+  "release_pan_at_home": true
 }

@@ -32,7 +32,10 @@ when needed. No access code or Pi display is required on your trusted Wi-Fi.
 
 Open http://127.0.0.1:8080. For the Pi, the prepared systemd installer enables the
 website and physical sorter on boot after the initial empty-tray calibration.
-It has not been installed or tested on the powered-off Pi yet.
+Installed and reboot-tested on the Pi on 28 October 2026. Use
+http://ecosort.local:8080 on the same trusted Wi-Fi. Pan releases its holding
+signal at HOME to avoid the operator-confirmed idle vibration; tilt still holds
+the tray level.
 See [dashboard access and boot setup](docs/dashboard.md).
 
 ## Start here

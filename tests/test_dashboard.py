@@ -217,21 +217,24 @@ class BridgeTests(unittest.TestCase):
     def test_boot_enables_routing_after_exactly_thirty_empty_frames(self):
         self.run_runtime(paused=True, auto_start=True)
 
-    def run_runtime(self, paused, auto_start=False):
+    def test_dashboard_waits_for_camera_exposure_before_learning_background(self):
+        self.run_runtime(paused=True, auto_start=True, warmup=60)
+
+    def run_runtime(self, paused, auto_start=False, warmup=0):
         import numpy as np
         import live_smart_bin as live
         empty=np.zeros((480,640,3),dtype=np.uint8)
         occupied=np.full_like(empty,255)
-        camera=SimpleNamespace(read=Mock(side_effect=[(True,empty.copy()) for _ in range(30)] +
+        camera=SimpleNamespace(read=Mock(side_effect=[(True,empty.copy()) for _ in range(30+warmup)] +
                                           [(True,occupied.copy()) for _ in range(5)]+[(False,None)]),
                                is_opened=lambda:True,release=Mock())
         scores={'paper':.9,'plastic':.025,'metal':.025,'food':.025,'unknown':.025}
         classifier=SimpleNamespace(categories=list(scores),dev_desc='FAKE',predict=Mock(return_value=('paper',.9,scores)))
         controller=SimpleNamespace(trigger_sort=Mock(),close=Mock(),status_str='SIMULATION')
-        bridge=SimpleNamespace(paused=paused,stopping=False,poll=lambda:[],emit=Mock(),frame=Mock(),calibrated=Mock())
+        bridge=SimpleNamespace(paused=paused,stopping=False,poll=lambda:[],emit=Mock(),frame=Mock(),calibrated=Mock(),warmup_frames=warmup)
         if auto_start:
             def calibrated():
-                self.assertEqual(camera.read.call_count,30)
+                self.assertEqual(camera.read.call_count,30+warmup)
                 bridge.paused=False
             bridge.calibrated=calibrated
         with patch.object(live,'ClipClassifier',return_value=classifier), \

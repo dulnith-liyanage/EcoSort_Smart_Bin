@@ -91,6 +91,7 @@ class ServoPanTilt:
         self.calibration = servo_settings.load_calibration()
         self.current_pan = self.calibration.pan_home
         self.current_tilt = self.calibration.tilt_home
+        self._pan_released = False
 
         self._init_hardware()
 
@@ -153,6 +154,10 @@ class ServoPanTilt:
     def set_pan(self, angle, smooth=True, step_delay=None):
         """Sets Pan (Azimuth) angle [0 - 180 deg]."""
         target = int(max(0, min(180, angle)))
+        if self._pan_released:
+            self.kit.servo[self.pan_ch].angle = self.current_pan
+            self._pan_released = False
+            time.sleep(0.15)
         if smooth:
             self.smooth_move(self.pan_ch, self.current_pan, target, step_delay)
         else:
@@ -163,12 +168,25 @@ class ServoPanTilt:
     def set_tilt(self, angle, smooth=True, step_delay=None):
         """Sets Tilt (Pitch) angle [0 - 180 deg]."""
         target = int(max(0, min(180, angle)))
+        if self._pan_released and target != self.calibration.tilt_home:
+            self.kit.servo[self.pan_ch].angle = self.current_pan
+            self._pan_released = False
+            time.sleep(0.15)
         if smooth:
             self.smooth_move(self.tilt_ch, self.current_tilt, target, step_delay)
         else:
             self.kit.servo[self.tilt_ch].angle = target
         self.current_tilt = target
         log_info(f"Tilt -> {self.current_tilt}°")
+
+    def release_idle_pan(self):
+        """Release only pan when both axes have returned to calibrated HOME."""
+        if (self.calibration.release_pan_at_home
+                and self.current_pan == self.calibration.pan_home
+                and self.current_tilt == self.calibration.tilt_home):
+            time.sleep(0.25)
+            self.kit.servo[self.pan_ch].angle = None
+            self._pan_released = True
 
     def go_home(self):
         """Command saved HOME angles; physical level must be checked by the operator."""
@@ -180,6 +198,8 @@ class ServoPanTilt:
         self.set_pan(pan)
         self.kit.servo[self.tilt_ch].angle = tilt
         self.kit.servo[self.pan_ch].angle = pan
+        self._pan_released = False
+        self.release_idle_pan()
         log_success("Saved HOME commanded; verify level on the mounting plate.")
 
     def dump_bin(self, bin_num):
@@ -227,6 +247,7 @@ class ServoPanTilt:
         # Step 5: Return pan to calibrated centre.
         log_info(f"5. Returning pan to calibrated HOME {self.calibration.pan_home}°...")
         self.set_pan(self.calibration.pan_home)
+        self.release_idle_pan()
         log_success(f"Dump sequence for {b['name']} ({b['pos']}) complete!\n")
 
     def sweep_pan(self, min_ang=45, max_ang=135, cycles=2):
@@ -240,6 +261,7 @@ class ServoPanTilt:
             self.set_pan(max_ang, step_delay=0.012)
             time.sleep(0.3)
         self.set_pan(self.calibration.pan_home)
+        self.release_idle_pan()
         log_success("Diagonal Pan sweep completed.")
 
     def sweep_tilt(self, min_ang=35, max_ang=145, cycles=2):

@@ -225,10 +225,24 @@ class DirectPca9685Controller(BaseServoController):
 
         self.current_pan = self.calibration.pan_home
         self.current_tilt = self.calibration.tilt_home
+        self._pan_released = False
         self.reset_home()
         log_success(f"Direct Raspberry Pi I2C PCA9685 Connected (Pan: Ch{pan_channel}, Tilt: Ch{tilt_channel})")
 
+    def release_idle_pan(self):
+        """Quiet the verified unloaded vertical pan axis; always retain tilt torque."""
+        if (self.calibration.release_pan_at_home
+                and self.current_pan == self.calibration.pan_home
+                and self.current_tilt == self.calibration.tilt_home):
+            time.sleep(0.25)
+            self.kit.servo[self.pan_ch].angle = None
+            self._pan_released = True
+
     def _smooth_move(self, channel, from_ang, to_ang, step_delay=None):
+        if channel == self.pan_ch and self._pan_released:
+            self.kit.servo[self.pan_ch].angle = self.current_pan
+            self._pan_released = False
+            time.sleep(0.15)
         from_ang = int(from_ang)
         to_ang = int(to_ang)
         if from_ang == to_ang:
@@ -274,6 +288,7 @@ class DirectPca9685Controller(BaseServoController):
         # Step 5: Return pan to the calibrated HOME.
         self._smooth_move(self.pan_ch, self.current_pan, self.calibration.pan_home)
         self.current_pan = self.calibration.pan_home
+        self.release_idle_pan()
         log_success(f"2x2 Sort cycle for {cfg['label']} ({bin_pos}) complete. Returned to HOME.")
 
     def reset_home(self):
@@ -284,6 +299,8 @@ class DirectPca9685Controller(BaseServoController):
         # The initial cached angles are not measurements. Always send HOME.
         self.kit.servo[self.tilt_ch].angle = self.calibration.tilt_home
         self.kit.servo[self.pan_ch].angle = self.calibration.pan_home
+        self._pan_released = False
+        self.release_idle_pan()
 
     def close(self):
         self.reset_home()
@@ -745,6 +762,7 @@ def main(bridge=None):
     background_frame = None
     calibration_frames = 30
     frames_read = 0
+    warmup_remaining = getattr(bridge, 'warmup_frames', 0) if bridge else 0
 
     try:
         while True:
@@ -777,6 +795,10 @@ def main(bridge=None):
                             scores=last_probs, stable=len(prediction_history),
                             calibration_progress=min(1.0, frames_read / calibration_frames),
                             message=locked_text or decision_text or ('Keep the tray empty while calibrating.' if phase == 'calibrating' else 'Place one item in the scanning area.'))
+
+            if warmup_remaining > 0:
+                warmup_remaining -= 1
+                continue
 
             h_f, w_f, _ = frame.shape
 

@@ -34,8 +34,9 @@ items and hands first. It does not change mechanical calibration.
 
 ## One-time installation (to do when the Pi is powered)
 
-Nothing in this section has been run on the Pi during this offline preparation.
-The installer defaults to a text preview. It refuses to install on a Mac.
+Installed and reboot-tested on the Pi on 28 October 2026. These commands are
+retained for reinstalling; the installer defaults to a preview and refuses to
+install on a Mac.
 
 First copy/update the dashboard branch on the Pi, close competing sorter and
 camera applications, verify the established motor routes and inspect the power
@@ -60,7 +61,8 @@ it for the next boot. It never enables the sorter with `--now`.
 After clearing the tray/assembly, the first supervised reboot will test startup,
 local hostname access, camera capture, model inference, I2C and delivery. Future
 power-ons will not need SSH, VNC or a manually started command. That first Pi
-verification remains pending; offline tests cannot establish physical success.
+verification passed for boot, model loading, I2C and camera streaming; this
+does not establish correct physical item delivery.
 
 Files installed on the Pi:
 
@@ -142,8 +144,18 @@ Counts are completed route commands, not bin fullness or verified deliveries.
 Match scores are not measured accuracy. CSV export retains modes/outcomes and
 up to the latest 10,000 records; the collapsed history shows the latest five.
 Missing Pi metrics are unavailable, never invented. Stale or disconnected
-camera views are labelled. Source behavior and offline tests are verified
-locally; service installation, reboot behavior and hardware checks await the Pi.
+camera views are labelled. Boot, camera streaming and hardware-mode startup
+were checked on the Pi on 28 October 2026. Item accuracy and correct-bin
+delivery still need separate supervised tests.
 
 References: [Pi remote access and mDNS](https://www.raspberrypi.com/documentation/computers/remote-access.html),
 [systemd service configuration](https://www.freedesktop.org/software/systemd/man/systemd.service.html).
+
+## Quiet HOME operation
+
+`release_pan_at_home: true` in the shared calibration releases only the pan
+holding signal once both axes reach HOME. Tilt remains powered to support the
+tray. Pan re-engages before a route or a manual tilt away from level. The
+operator confirmed tilt holding with pan released was quiet. Do not rotate the
+released pan axis by hand: the software has no physical angle feedback. See
+[the vibration diagnosis](servo_vibration.md).
