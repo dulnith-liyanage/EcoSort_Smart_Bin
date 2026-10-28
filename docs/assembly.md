@@ -19,10 +19,10 @@ tray. No 3D-printed parts or CAD files are required.
 5. Clear the full tray path and check every attachment before powering servos.
    Start unloaded. The saved commands do not prove mechanical clearance.
 
-![Full EcoSort Assembly](../images/BADR3365.HEIC)
-![MG996R Pan-Tilt Mechanism](../images/IBHU1869.HEIC)
-![PCA9685 Motor Driver Wiring](../images/EYGG9193.HEIC)
-![Raspberry Pi 5 & Camera V2 Mount](../images/LFYA0669.HEIC)
+![Full EcoSort Assembly](../images/BADR3365.jpg)
+![MG996R Pan-Tilt Mechanism](../images/IBHU1869.jpg)
+![PCA9685 Motor Driver Wiring](../images/EYGG9193.jpg)
+![Raspberry Pi 5 & Camera V2 Mount](../images/LFYA0669.jpg)
 
 ## Current bin labels
 
