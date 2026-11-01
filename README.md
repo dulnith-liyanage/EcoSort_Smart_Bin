@@ -4,7 +4,6 @@
 [![Raspberry Pi 5](https://img.shields.io/badge/Raspberry%20Pi-5%20Tested-C51A4A?style=flat&logo=raspberrypi&logoColor=white)](https://www.raspberrypi.com/)
 [![Vision Model](https://img.shields.io/badge/Model-OpenAI%20CLIP%20%7C%20SigLIP%202-blueviolet?style=flat&logo=huggingface&logoColor=white)](https://huggingface.co/)
 [![Hardware](https://img.shields.io/badge/Hardware-PCA9685%20%2B%202x%20MG996R-orange?style=flat)](https://www.adafruit.com/product/815)
-[![Tests Passing](https://img.shields.io/badge/Tests-102%20Passed-brightgreen?style=flat)](tests/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 > **An autonomous, vision-based 4-way waste sorting system combining zero-shot edge AI classification, a 2-axis servo pan-tilt mechanism, automated tray presence detection, and a real-time web telemetry dashboard.**
@@ -14,7 +13,7 @@ Developed for the Term 1 Project in the **Department of Electronic and Telecommu
 ---
 
 <p align="center">
-  <img src="assets/ecosort_prototype_hero.jpg" alt="EcoSort Smart Bin Assembled Prototype" width="850" style="border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15);">
+  <img src="assets/ecosort_prototype_hero.jpg" alt="EcoSort Smart Bin Assembled Prototype" width="580" style="border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15);">
   <br>
   <em>Figure 1: Fully assembled EcoSort prototype showing 4 collection bins, central pan-tilt mechanism, stationary scanning tray, and overhead Raspberry Pi 5 with Camera Module V2.</em>
 </p>
@@ -49,28 +48,6 @@ EcoSort operates in a closed loop: Camera Module V2 captures frames of a station
   <br>
   <em>Figure 2: EcoSort end-to-end hardware and software architecture diagram.</em>
 </p>
-
-### Pipeline Workflow
-
-```mermaid
-flowchart TD
-    A["📷 Camera Module V2 (Stationary View)"] --> B["🔍 Gaussian Blur & Background Subtraction"]
-    B --> C{"Item Present on Tray?"}
-    C -- No --> B
-    C -- Yes --> D["✂️ Extract Tight Contour & Letterbox to Square"]
-    D --> E["🧠 Zero-Shot Vision Encoder (CLIP / SigLIP 2)"]
-    E --> F["📊 Cosine Similarity vs Pre-computed Category Embeddings"]
-    F --> G["⏳ Temporal Window Voting & Confidence Gating"]
-    G --> H{"Stable Prediction Passed Gate?"}
-    H -- No --> I["⏸️ Hold Position at Level HOME & Observe"]
-    H -- Yes --> J["🗺️ Resolve 2x2 Grid Coordinates (Pan & Tilt)"]
-    J --> K["📈 Execute Quintic S-Curve Pan Alignment"]
-    K --> L["🔽 Tilt Tray into Target Bin (Forward/Backward Dump)"]
-    L --> M["🔼 Return Tilt to Level HOME (Pan Released)"]
-    M --> N["🔄 Return Pan to Level HOME"]
-    N --> O["📡 Log Event to SQLite Store & Broadcast Web Telemetry"]
-```
-
 ---
 
 ## 🗑️ 2x2 Grid Sorting Matrix
