@@ -13,9 +13,9 @@ Developed for the Term 1 Project in the **Department of Electronic and Telecommu
 ---
 
 <p align="center">
-  <img src="assets/ecosort_prototype_hero.jpg" alt="EcoSort Smart Bin Assembled Prototype" width="580" style="border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15);">
+  <img src="images/BADR3365.jpg" alt="EcoSort Smart Bin Assembled Prototype" width="100%" style="border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15);">
   <br>
-  <em>Figure 1: Fully assembled EcoSort prototype showing 4 collection bins, central pan-tilt mechanism, stationary scanning tray, and overhead Raspberry Pi 5 with Camera Module V2.</em>
+  <em>Figure 1: Fully assembled EcoSort prototype showing 4 collection bins, central pan-tilt mechanism, stationary scanning tray, overhead Raspberry Pi 5 with Camera Module V2 connected to laptop showing the dashboard.</em>
 </p>
 
 <p align="center">
@@ -69,9 +69,9 @@ The system features four colored collection baskets arranged symmetrically in a 
 ## 🦾 Hardware Configuration & BOM
 
 <p align="center">
-  <img src="assets/hardware_wiring.jpg" alt="Hardware Configuration and Wiring" width="480">
+  <img src="assets/hardware_wiring.jpg" alt="Hardware Configuration and Wiring" Height="360">
   &nbsp;&nbsp;
-  <img src="assets/tilt_mechanism.jpg" alt="Center Pan Tilt Mechanism Clearance" width="360">
+  <img src="assets/tilt_mechanism.jpg" alt="Center Pan Tilt Mechanism Clearance" height="360">
   <br>
   <em>Figure 3: Left: Cooled Raspberry Pi 5 case, Camera Module V2, PCA9685 driver, and wiring. Right: Pan-tilt center bracket and tray clearance.</em>
 </p>
